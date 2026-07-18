@@ -50,8 +50,8 @@ pub struct MediaClient {
 impl MediaClient {
     pub fn new(url: String, api_key: String, is_emby: bool) -> Self {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(120))
+            .connect_timeout(std::time::Duration::from_secs(15))
             .build()
             .unwrap_or_else(|_| Client::new());
         Self {
