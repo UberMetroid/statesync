@@ -1,8 +1,8 @@
 use std::env;
 use anyhow::{Result, Context, anyhow};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerConfig {
     pub name: String,
     pub url: String,
@@ -10,7 +10,7 @@ pub struct ServerConfig {
     pub is_emby: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub servers: Vec<ServerConfig>,
     #[serde(default = "default_threshold_seconds")]
@@ -68,7 +68,7 @@ impl Config {
 
         // 3. Fallback to config.json
         if servers.is_empty() {
-            let paths = ["/etc/statesync/config.json", "/app/config.json", "config.json"];
+            let paths = [get_config_path(), "/etc/statesync/config.json", "/app/config.json", "config.json"];
             for path in &paths {
                 if std::path::Path::new(path).exists() {
                     let data = std::fs::read_to_string(path)
@@ -95,5 +95,17 @@ impl Config {
             servers,
             sync_threshold_seconds: threshold,
         })
+    }
+}
+
+pub fn get_config_path() -> &'static str {
+    if std::path::Path::new("/config").exists() {
+        "/config/config.json"
+    } else if std::path::Path::new("/etc/statesync").exists() {
+        "/etc/statesync/config.json"
+    } else if std::path::Path::new("/app").exists() {
+        "/app/config.json"
+    } else {
+        "config.json"
     }
 }

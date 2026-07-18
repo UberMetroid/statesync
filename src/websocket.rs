@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use serde_json::json;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast};
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessageProto;
@@ -31,15 +31,28 @@ pub async fn handle_websocket_loop(
     target_clients: Vec<(usize, Arc<MediaClient>)>,
     state_lock: Arc<Mutex<AppState>>,
     config: Config,
+    mut shutdown_rx: broadcast::Receiver<()>,
 ) {
     loop {
         let source_name = {
             let state = state_lock.lock().await;
+            if source_index >= state.caches.len() {
+                return;
+            }
             state.caches[source_index].name.clone()
         };
 
         info!("Connecting to '{}' WebSocket: {}", source_name, ws_url);
-        match connect_async(ws_url).await {
+        
+        let conn_result = tokio::select! {
+            _ = shutdown_rx.recv() => {
+                info!("WebSocket loop for '{}' shut down by orchestrator.", source_name);
+                return;
+            }
+            res = connect_async(ws_url) => res,
+        };
+
+        match conn_result {
             Ok((mut ws_stream, _)) => {
                 info!("'{}' WebSocket connected.", source_name);
 
@@ -53,7 +66,20 @@ pub async fn handle_websocket_loop(
                     continue;
                 }
 
-                while let Some(msg) = ws_stream.next().await {
+                loop {
+                    let next_msg = tokio::select! {
+                        _ = shutdown_rx.recv() => {
+                            info!("WebSocket loop for '{}' shut down by orchestrator.", source_name);
+                            return;
+                        }
+                        msg = ws_stream.next() => msg,
+                    };
+
+                    let msg = match next_msg {
+                        Some(m) => m,
+                        None => break,
+                    };
+
                     match msg {
                         Ok(WsMessageProto::Text(text)) => {
                             if let Ok(ws_msg) = serde_json::from_str::<WsMessage>(&text) {
@@ -156,6 +182,14 @@ pub async fn handle_websocket_loop(
                 error!("Failed to connect to '{}' WebSocket: {}. Retrying in 5 seconds...", source_name, e);
             }
         }
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        
+        // Wait 5 seconds before retrying, unless shut down
+        tokio::select! {
+            _ = shutdown_rx.recv() => {
+                info!("WebSocket loop for '{}' shut down by orchestrator during retry wait.", source_name);
+                return;
+            }
+            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+        }
     }
 }

@@ -9,4 +9,5 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:9.4
 WORKDIR /app
 COPY --from=builder /usr/src/statesync/target/x86_64-unknown-linux-musl/release/statesync /app/statesync
 ENV RUST_LOG=info
+EXPOSE 8754
 CMD ["/app/statesync"]
