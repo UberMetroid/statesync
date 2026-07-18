@@ -21,14 +21,12 @@ pub struct SyncHistoryValue {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SyncLogEntry {
     pub timestamp: String,
-    pub user: String,
-    pub item: String,
-    pub source_name: String,
-    pub source_is_emby: bool,
-    pub target_name: String,
-    pub target_is_emby: bool,
-    pub position_secs: f64,
-    pub is_paused: bool,
+    pub level: String, // "info", "warn", "error", "success"
+    pub message: String,
+    pub source_name: Option<String>,
+    pub source_is_emby: Option<bool>,
+    pub target_name: Option<String>,
+    pub target_is_emby: Option<bool>,
 }
 
 pub struct AppState {
@@ -51,10 +49,34 @@ impl AppState {
         }
     }
 
+    pub fn log_event(&mut self, level: &str, msg: &str) {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let hours = (secs / 3600) % 24;
+        let mins = (secs / 60) % 60;
+        let w_secs = secs % 60;
+        let timestamp = format!("{:02}:{:02}:{:02}", hours, mins, w_secs);
+
+        self.sync_logs.insert(0, SyncLogEntry {
+            timestamp,
+            level: level.to_string(),
+            message: msg.to_string(),
+            source_name: None,
+            source_is_emby: None,
+            target_name: None,
+            target_is_emby: None,
+        });
+        if self.sync_logs.len() > 30 {
+            self.sync_logs.truncate(30);
+        }
+    }
+
     pub fn log_sync(&mut self, entry: SyncLogEntry) {
         self.sync_logs.insert(0, entry);
-        if self.sync_logs.len() > 15 {
-            self.sync_logs.truncate(15);
+        if self.sync_logs.len() > 30 {
+            self.sync_logs.truncate(30);
         }
     }
 }

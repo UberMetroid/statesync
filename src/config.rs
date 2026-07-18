@@ -8,6 +8,12 @@ pub struct ServerConfig {
     pub url: String,
     pub api_key: String,
     pub is_emby: bool,
+    #[serde(default = "default_sync_direction")]
+    pub sync_direction: String, // "both", "send", "receive"
+}
+
+fn default_sync_direction() -> String {
+    "both".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -35,6 +41,7 @@ impl Config {
                 let name_var = format!("STATESYNC_SERVER_{}_NAME", i);
                 let key_var = format!("STATESYNC_SERVER_{}_API_KEY", i);
                 let type_var = format!("STATESYNC_SERVER_{}_TYPE", i);
+                let dir_var = format!("STATESYNC_SERVER_{}_DIRECTION", i);
 
                 let name = env::var(&name_var).unwrap_or_else(|_| format!("Server {}", i));
                 let api_key = env::var(&key_var)
@@ -43,12 +50,15 @@ impl Config {
                 let is_emby = env::var(&type_var)
                     .map(|val| val.to_lowercase() == "emby")
                     .unwrap_or(false);
+                
+                let sync_direction = env::var(&dir_var).unwrap_or_else(|_| "both".to_string());
 
                 servers.push(ServerConfig {
                     name,
                     url,
                     api_key,
                     is_emby,
+                    sync_direction,
                 });
             }
         }
@@ -61,8 +71,8 @@ impl Config {
             let jf_key = env::var("STATESYNC_JELLYFIN_API_KEY").ok();
 
             if let (Some(e_url), Some(e_key), Some(j_url), Some(j_key)) = (emby_url, emby_key, jf_url, jf_key) {
-                servers.push(ServerConfig { name: "Emby".to_string(), url: e_url, api_key: e_key, is_emby: true });
-                servers.push(ServerConfig { name: "Jellyfin".to_string(), url: j_url, api_key: j_key, is_emby: false });
+                servers.push(ServerConfig { name: "Emby".to_string(), url: e_url, api_key: e_key, is_emby: true, sync_direction: "both".to_string() });
+                servers.push(ServerConfig { name: "Jellyfin".to_string(), url: j_url, api_key: j_key, is_emby: false, sync_direction: "both".to_string() });
             }
         }
 

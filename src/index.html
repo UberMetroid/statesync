@@ -38,6 +38,7 @@
     .modal-content { background: var(--bg); border: 2px solid var(--border); box-shadow: 0 0 30px var(--border); width: 450px; padding: 25px; position: relative; }
     .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 15px; }
     input, select { background: rgba(5,10,25,0.8); border: 1px solid rgba(0,240,255,0.4); color: var(--text); padding: 8px; font-family: inherit; font-size: 13px; outline: none; }
+    select option { background: #0a0e17; color: var(--text); }
     input:focus, select:focus { border-color: var(--border); box-shadow: 0 0 8px rgba(0,240,255,0.4); }
     .toast { position: fixed; bottom: 20px; right: 20px; background: var(--panel); border: 1px solid var(--border); padding: 12px 20px; display: none; animation: pulse 1s infinite alternate; }
     @keyframes pulse { from { box-shadow: 0 0 5px var(--border); } to { box-shadow: 0 0 15px var(--border); } }
@@ -89,6 +90,7 @@
         <div class="form-group"><label>IDENT NAME</label><input type="text" id="serverName" required></div>
         <div class="form-group"><label>TRANSCEIVER IP:PORT</label><input type="url" id="serverUrl" placeholder="http://192.168.3.10:8096" required></div>
         <div class="form-group"><label>ACCESS KEY (API)</label><input type="password" id="serverKey" required></div>
+        <div class="form-group"><label>SYNC DIRECTION</label><select id="serverDirection"><option value="both">BI-DIRECTIONAL</option><option value="send">SEND ONLY</option><option value="receive">RECEIVE ONLY</option></select></div>
         <div style="display: flex; justify-content: space-between; margin-top: 20px;">
           <button type="submit" class="btn">[ SAVE ]</button>
           <button type="button" class="btn btn-accent" onclick="testConnection()">[ TEST LINK ]</button>
@@ -138,7 +140,8 @@
           currentConfig.servers.forEach((srv, idx) => {
             const sStatus = status.servers.find(s => s.name === srv.name) || { users_count: 0, media_count: 0, websocket_status: 'Offline' };
             const row = document.createElement('div'); row.className = 'server-row';
-            row.innerHTML = `<div class="server-info"><span class="status-${sStatus.websocket_status}">[ ${sStatus.websocket_status.toUpperCase()} ]</span><div><span style="font-weight:600;color:#fff">${srv.name}</span> <span class="badge">${srv.is_emby ? 'EMBY' : 'JELLYFIN'}</span><div style="font-size:11px;color:var(--text);margin-top:2px">${srv.url}</div></div></div><div class="server-info"><span style="font-size:12px">${sStatus.users_count} USERS | ${sStatus.media_count} CACHED</span><button class="btn" onclick="openServerModal(${idx})">[ EDIT ]</button><button class="btn btn-danger" onclick="deleteServer(${idx})">[ WIPE ]</button></div>`;
+            const dirBadge = srv.sync_direction === 'send' ? ' [SEND ONLY]' : (srv.sync_direction === 'receive' ? ' [RCV ONLY]' : '');
+            row.innerHTML = `<div class="server-info"><span class="status-${sStatus.websocket_status}">[ ${sStatus.websocket_status.toUpperCase()} ]</span><div><span style="font-weight:600;color:#fff">${srv.name}</span> <span class="badge">${srv.is_emby ? 'EMBY' : 'JELLYFIN'}${dirBadge}</span><div style="font-size:11px;color:var(--text);margin-top:2px">${srv.url}</div></div></div><div class="server-info"><span style="font-size:12px">${sStatus.users_count} USERS | ${sStatus.media_count} CACHED</span><button class="btn" onclick="openServerModal(${idx})">[ EDIT ]</button><button class="btn btn-danger" onclick="deleteServer(${idx})">[ WIPE ]</button></div>`;
             listDiv.appendChild(row);
           });
         }
@@ -166,9 +169,14 @@
           logsDiv.innerHTML = '';
           status.sync_logs.forEach(log => {
             const line = document.createElement('div'); line.className = 'log-line';
-            const sCol = log.source_is_emby ? 'var(--green)' : '#cc00ff'; const tCol = log.target_is_emby ? 'var(--green)' : '#cc00ff';
-            const sBadge = log.source_is_emby ? 'EMBY' : 'JELLYFIN'; const tBadge = log.target_is_emby ? 'EMBY' : 'JELLYFIN';
-            line.innerHTML = `&gt; [${log.timestamp}] SYNCED '${log.item.toUpperCase()}' FOR ${log.user.toUpperCase()} FROM <span style="color:${sCol}">[${sBadge}: ${log.source_name.toUpperCase()}]</span> -&gt; <span style="color:${tCol}">[${tBadge}: ${log.target_name.toUpperCase()}]</span> TO ${log.position_secs.toFixed(1)}S${log.is_paused ? ' (PAUSED)' : ''}`;
+            if (log.level === 'success' && log.source_name) {
+              const sCol = log.source_is_emby ? 'var(--green)' : '#cc00ff'; const tCol = log.target_is_emby ? 'var(--green)' : '#cc00ff';
+              const sBadge = log.source_is_emby ? 'EMBY' : 'JELLYFIN'; const tBadge = log.target_is_emby ? 'EMBY' : 'JELLYFIN';
+              line.innerHTML = `&gt; [${log.timestamp}] ${log.message.toUpperCase()} FROM <span style="color:${sCol}">[${sBadge}: ${log.source_name.toUpperCase()}]</span> -&gt; <span style="color:${tCol}">[${tBadge}: ${log.target_name.toUpperCase()}]</span>`;
+            } else {
+              const color = log.level === 'error' ? 'var(--red)' : (log.level === 'warn' ? 'var(--accent)' : 'var(--border)');
+              line.innerHTML = `&gt; [${log.timestamp}] <span style="color:${color};text-shadow:0 0 5px ${color}">[${log.level.toUpperCase()}] ${log.message.toUpperCase()}</span>`;
+            }
             logsDiv.appendChild(line);
           });
         } else { logsDiv.innerHTML = '<div style="color:var(--green)">> LISTENING FOR METRIC EVENTS...</div>'; }
@@ -176,10 +184,18 @@
     }
     function openServerModal(idx) {
       editIndex = idx;
-      if (idx === -1) { document.getElementById('modalTitle').innerText = '[ ADD TRANSCEIVER MODULE ]'; document.getElementById('serverForm').reset(); } else {
+      if (idx === -1) {
+        document.getElementById('modalTitle').innerText = '[ ADD TRANSCEIVER MODULE ]';
+        document.getElementById('serverForm').reset();
+        document.getElementById('serverDirection').value = 'both';
+      } else {
         document.getElementById('modalTitle').innerText = '[ EDIT TRANSCEIVER MODULE ]';
-        const srv = currentConfig.servers[idx]; document.getElementById('serverType').value = srv.is_emby ? 'emby' : 'jellyfin';
-        document.getElementById('serverName').value = srv.name; document.getElementById('serverUrl').value = srv.url; document.getElementById('serverKey').value = srv.api_key;
+        const srv = currentConfig.servers[idx];
+        document.getElementById('serverType').value = srv.is_emby ? 'emby' : 'jellyfin';
+        document.getElementById('serverName').value = srv.name;
+        document.getElementById('serverUrl').value = srv.url;
+        document.getElementById('serverKey').value = srv.api_key;
+        document.getElementById('serverDirection').value = srv.sync_direction || 'both';
       }
       document.getElementById('serverModal').style.display = 'flex';
     }
@@ -195,8 +211,13 @@
       } catch (err) { showToast('LINK RESPONSE FAILED'); }
     }
     document.getElementById('serverForm').addEventListener('submit', async (e) => {
-      e.preventDefault(); const type = document.getElementById('serverType').value; const name = document.getElementById('serverName').value; const url = document.getElementById('serverUrl').value; const api_key = document.getElementById('serverKey').value;
-      const data = { name, url, api_key, is_emby: type === 'emby' };
+      e.preventDefault();
+      const type = document.getElementById('serverType').value;
+      const name = document.getElementById('serverName').value;
+      const url = document.getElementById('serverUrl').value;
+      const api_key = document.getElementById('serverKey').value;
+      const direction = document.getElementById('serverDirection').value;
+      const data = { name, url, api_key, is_emby: type === 'emby', sync_direction: direction };
       if (editIndex === -1) { currentConfig.servers.push(data); } else { currentConfig.servers[editIndex] = data; }
       closeModal('serverModal'); await saveConfig();
     });

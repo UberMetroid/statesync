@@ -67,6 +67,11 @@ async fn main() -> Result<()> {
         // Initialize all clients and cache metadata
         let mut init_success = true;
         for s in &config.servers {
+            {
+                let mut state = app_state.lock().await;
+                state.log_event("info", &format!("Connecting to server '{}' ({})", s.name, s.url));
+                state.log_event("info", &format!("Initializing metadata cache for '{}'...", s.name));
+            }
             info!("Connecting to server '{}' ({})", s.name, s.url);
             let client = Arc::new(MediaClient::new(s.url.clone(), s.api_key.clone(), s.is_emby));
             
@@ -74,11 +79,19 @@ async fn main() -> Result<()> {
             match init_server_cache(&s.name, &client).await {
                 Ok(cache) => {
                     info!("Cache loaded for '{}': {} users, {} matched media items.", s.name, cache.users.len(), cache.id_to_providers.len());
+                    {
+                        let mut state = app_state.lock().await;
+                        state.log_event("success", &format!("Cache loaded for '{}': {} users, {} media", s.name, cache.users.len(), cache.id_to_providers.len()));
+                    }
                     clients.push(client);
                     caches.push(cache);
                 }
                 Err(e) => {
                     error!("Failed to initialize cache for server '{}': {}. Re-trying on config change...", s.name, e);
+                    {
+                        let mut state = app_state.lock().await;
+                        state.log_event("error", &format!("Failed to initialize cache for server '{}': {}", s.name, e));
+                    }
                     init_success = false;
                     break;
                 }

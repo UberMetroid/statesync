@@ -28,18 +28,14 @@ pub async fn handle_websocket_loop(
     loop {
         let source_name = {
             let state = state_lock.lock().await;
-            if source_index >= state.caches.len() {
-                return;
-            }
+            if source_index >= state.caches.len() { return; }
             state.caches[source_index].name.clone()
         };
 
         // Report Reconnecting status
         {
             let mut state = state_lock.lock().await;
-            if source_index < state.websocket_statuses.len() {
-                state.websocket_statuses[source_index] = "Reconnecting".to_string();
-            }
+            if source_index < state.websocket_statuses.len() { state.websocket_statuses[source_index] = "Reconnecting".to_string(); }
         }
 
         info!("Connecting to '{}' WebSocket: {}", source_name, ws_url);
@@ -47,9 +43,7 @@ pub async fn handle_websocket_loop(
         let conn_result = tokio::select! {
             _ = shutdown_rx.recv() => {
                 let mut state = state_lock.lock().await;
-                if source_index < state.websocket_statuses.len() {
-                    state.websocket_statuses[source_index] = "Offline".to_string();
-                }
+                if source_index < state.websocket_statuses.len() { state.websocket_statuses[source_index] = "Offline".to_string(); }
                 return;
             }
             res = connect_async(ws_url) => res,
@@ -62,9 +56,8 @@ pub async fn handle_websocket_loop(
                 // Report Connected status
                 {
                     let mut state = state_lock.lock().await;
-                    if source_index < state.websocket_statuses.len() {
-                        state.websocket_statuses[source_index] = "Connected".to_string();
-                    }
+                    state.log_event("success", &format!("'{}' WebSocket connected.", source_name));
+                    if source_index < state.websocket_statuses.len() { state.websocket_statuses[source_index] = "Connected".to_string(); }
                 }
 
                 let start_msg = json!({
@@ -145,8 +138,15 @@ pub async fn handle_websocket_loop(
                                                             }
                                                         }
 
+                                                        if config.servers[source_index].sync_direction == "receive" {
+                                                            continue;
+                                                        }
+
                                                         // Sync to all OTHER target servers
                                                         for &(target_index, ref client_target) in &target_clients {
+                                                            if config.servers[target_index].sync_direction == "send" {
+                                                                continue;
+                                                            }
                                                             let (target_item_id, target_user_id, target_name) = {
                                                                 let target_cache = &state.caches[target_index];
                                                                 let mut t_item_id = None;
@@ -176,33 +176,34 @@ pub async fn handle_websocket_loop(
                                                                 let w_secs = secs % 60;
                                                                 let timestamp = format!("{:02}:{:02}:{:02}", hours, mins, w_secs);
 
+                                                                let message = format!(
+                                                                    "Synced '{}' for {} to {:.1}s{}",
+                                                                    item.name.as_deref().unwrap_or(&item.id),
+                                                                    user_name,
+                                                                    pos_secs,
+                                                                    if is_paused { " (paused)" } else { "" }
+                                                                );
                                                                 let entry = crate::state::SyncLogEntry {
                                                                     timestamp,
-                                                                    user: user_name.clone(),
-                                                                    item: item.name.as_deref().unwrap_or(&item.id).to_string(),
-                                                                    source_name: source_name.clone(),
-                                                                    source_is_emby: config.servers[source_index].is_emby,
-                                                                    target_name: target_name.clone(),
-                                                                    target_is_emby: config.servers[target_index].is_emby,
-                                                                    position_secs: pos_secs,
-                                                                    is_paused,
+                                                                    level: "success".to_string(),
+                                                                    message: message.clone(),
+                                                                    source_name: Some(source_name.clone()),
+                                                                    source_is_emby: Some(config.servers[source_index].is_emby),
+                                                                    target_name: Some(target_name.clone()),
+                                                                    target_is_emby: Some(config.servers[target_index].is_emby),
                                                                 };
                                                                 
-                                                                info!(
-                                                                    "Synced '{}' for {} from '{}' -> '{}' to {:.1}s{}",
-                                                                    entry.item,
-                                                                    entry.user,
-                                                                    entry.source_name,
-                                                                    entry.target_name,
-                                                                    entry.position_secs,
-                                                                    if entry.is_paused { " (paused)" } else { "" }
-                                                                );
+                                                                info!("{}", message);
                                                                 state.log_sync(entry);
 
                                                                 let client_target_clone = client_target.clone();
+                                                                let state_lock_clone = state_lock.clone();
+                                                                let target_name_clone = target_name.clone();
                                                                 tokio::spawn(async move {
                                                                     if let Err(e) = client_target_clone.update_progress(&t_user_id, &t_item_id, position, is_paused).await {
                                                                         error!("Error updating target playstate progress: {}", e);
+                                                                        let mut state = state_lock_clone.lock().await;
+                                                                        state.log_event("error", &format!("Sync failed to '{}': {}", target_name_clone, e));
                                                                     }
                                                                 });
                                                             }
@@ -223,9 +224,14 @@ pub async fn handle_websocket_loop(
                     }
                 }
                 warn!("'{}' WebSocket disconnected. Reconnecting in 5 seconds...", source_name);
+                {
+                    let mut state = state_lock.lock().await;
+                    state.log_event("warn", &format!("'{}' WebSocket disconnected. Reconnecting...", source_name));
+                }
             }
             Err(e) => {
                 error!("Failed to connect to '{}' WebSocket: {}. Retrying in 5 seconds...", source_name, e);
+                state_lock.lock().await.log_event("error", &format!("Failed to connect to '{}' WebSocket: {}", source_name, e));
             }
         }
         
@@ -233,9 +239,7 @@ pub async fn handle_websocket_loop(
         tokio::select! {
             _ = shutdown_rx.recv() => {
                 let mut state = state_lock.lock().await;
-                if source_index < state.websocket_statuses.len() {
-                    state.websocket_statuses[source_index] = "Offline".to_string();
-                }
+                if source_index < state.websocket_statuses.len() { state.websocket_statuses[source_index] = "Offline".to_string(); }
                 return;
             }
             _ = tokio::time::sleep(Duration::from_secs(5)) => {}
