@@ -53,22 +53,20 @@ pub async fn handle_websocket_loop(
             Ok((mut ws_stream, _)) => {
                 info!("'{}' WebSocket connected.", source_name);
                 
-                // Report Connected status
-                {
-                    let mut state = state_lock.lock().await;
-                    state.log_event("success", &format!("'{}' WebSocket connected.", source_name));
-                    if source_index < state.websocket_statuses.len() { state.websocket_statuses[source_index] = "Connected".to_string(); }
-                }
+                let mut state = state_lock.lock().await;
+                state.log_event("success", &format!("'{}' WebSocket connected.", source_name));
+                if source_index < state.websocket_statuses.len() { state.websocket_statuses[source_index] = "Connected".to_string(); }
+                drop(state);
 
-                let start_msg = json!({
-                    "MessageType": "SessionsStart",
-                    "Data": "0,1000"
-                });
-                if let Err(e) = ws_stream.send(WsMessageProto::Text(start_msg.to_string().into())).await {
+                let start_msg = json!({ "MessageType": "SessionsStart", "Data": "0,1000" }).to_string();
+                if let Err(e) = ws_stream.send(WsMessageProto::Text(start_msg.into())).await {
                     error!("Failed to send subscribe message for '{}': {}", source_name, e);
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     continue;
                 }
+
+                let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+                ping_interval.tick().await;
 
                 loop {
                     let next_msg = tokio::select! {
@@ -78,6 +76,13 @@ pub async fn handle_websocket_loop(
                                 state.websocket_statuses[source_index] = "Offline".to_string();
                             }
                             return;
+                        }
+                        _ = ping_interval.tick() => {
+                            if let Err(e) = ws_stream.send(WsMessageProto::Ping(Vec::new().into())).await {
+                                warn!("Failed to send ping to '{}': {}", source_name, e);
+                                break;
+                            }
+                            continue;
                         }
                         msg = ws_stream.next() => msg,
                     };
@@ -209,6 +214,12 @@ pub async fn handle_websocket_loop(
                                 }
                             }
                         }
+                        Ok(WsMessageProto::Ping(payload)) => {
+                            if let Err(e) = ws_stream.send(WsMessageProto::Pong(payload)).await {
+                                warn!("Failed to send pong to '{}': {}", source_name, e);
+                                break;
+                            }
+                        }
                         Ok(_) => {}
                         Err(e) => {
                             error!("WebSocket stream error on '{}': {}", source_name, e);
@@ -217,10 +228,7 @@ pub async fn handle_websocket_loop(
                     }
                 }
                 warn!("'{}' WebSocket disconnected. Reconnecting in 5 seconds...", source_name);
-                {
-                    let mut state = state_lock.lock().await;
-                    state.log_event("warn", &format!("'{}' WebSocket disconnected. Reconnecting...", source_name));
-                }
+                state_lock.lock().await.log_event("warn", &format!("'{}' WebSocket disconnected. Reconnecting...", source_name));
             }
             Err(e) => {
                 error!("Failed to connect to '{}' WebSocket: {}. Retrying in 5 seconds...", source_name, e);
