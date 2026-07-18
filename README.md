@@ -1,6 +1,6 @@
 # statesync
 
-![StateSync Header](statesync_header.jpg)
+![StateSync Header](graphics/statesync_header.jpg)
 
 A lightweight, high-performance Rust daemon designed to synchronize playback progress, watch states, and resume points bi-directionally between an arbitrary number of Emby and Jellyfin Media Servers in real-time.
 
