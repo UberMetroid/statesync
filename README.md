@@ -1,49 +1,66 @@
 # statesync
 
-A lightweight, high-performance Rust daemon designed to synchronize playback progress, watch states, and resume points bi-directionally between an Emby Media Server and a Jellyfin Media Server in real-time.
+A lightweight, high-performance Rust daemon designed to synchronize playback progress, watch states, and resume points bi-directionally between an arbitrary number of Emby and Jellyfin Media Servers in real-time.
 
 ## Features
 
-- **Bi-directional Real-Time Sync**: Syncs playback positions, play states, and paused/resumed statuses between Emby and Jellyfin instantly.
+- **Bi-directional Real-Time Sync**: Syncs playback positions, play states, and paused/resumed statuses between all configured servers instantly.
+- **Support for N-Servers**: Syncs across 2, 3, or more servers seamlessly.
 - **IMDb & TMDb Matching**: Uses global identifiers (IMDb ID and TMDb ID) from the metadata of your media files to link items. Works perfectly even if database IDs, filenames, or library structures differ between your servers.
 - **LDAP-Friendly User Mapping**: Matches users across servers automatically by matching their usernames (case-insensitive). Perfect for setups synced via LDAP or Active Directory.
 - **Intelligent Feedback Loop Prevention**: Caches and tracks the last synchronized positions per user/movie to prevent endless "ping-pong" update loops between servers.
-- **Robust Connection Recovery**: Connects to the WebSockets of both servers concurrently and automatically reconnects in case of connection dropouts or server restarts.
-- **Zero Server Modification**: Requires no plugins, DLLs, or restarts on either Emby or Jellyfin. Connects purely via standard REST APIs and WebSockets.
+- **Robust Connection Recovery**: Connects to the WebSockets of all servers concurrently and automatically reconnects in case of connection dropouts or server restarts.
+- **Zero Server Modification**: Requires no plugins, DLLs, or restarts on your servers. Connects purely via standard REST APIs and WebSockets.
 
 ---
 
 ## Configuration
 
-`statesync` can be configured using either **Environment Variables** or a **`config.json`** file.
+`statesync` can be configured using either a **`config.json`** file or **Environment Variables**.
 
-### Option A: Environment Variables (Recommended for Containers)
+### Option A: `config.json` File (Highly Recommended for 3+ Servers)
 
-Set the following environment variables when running the service:
-
-- `STATESYNC_EMBY_URL`: The URL of your Emby Media Server.
-- `STATESYNC_EMBY_API_KEY`: A valid Emby API key.
-- `STATESYNC_JELLYFIN_URL`: The URL of your Jellyfin Media Server.
-- `STATESYNC_JELLYFIN_API_KEY`: A valid Jellyfin API key.
-- `STATESYNC_SYNC_THRESHOLD_SECONDS`: Optional. Sync threshold in seconds. Default: `5`.
-- `RUST_LOG`: Logging verbosity level (`info`, `warn`, `error`, `debug`).
-
-### Option B: `config.json` File
-
-Create a file named `config.json` at either `/etc/statesync/config.json`, `/app/config.json`, or in the daemon's working directory:
+Create a file named `config.json` at either `/etc/statesync/config.json`, `/app/config.json`, or in the daemon's working directory. Define your servers in an array:
 
 ```json
 {
-  "emby": {
-    "url": "http://192.168.3.3:8096",
-    "api_key": "YOUR_EMBY_API_KEY"
-  },
-  "jellyfin": {
-    "url": "http://192.168.3.10:8096",
-    "api_key": "YOUR_JELLYFIN_API_KEY"
-  },
+  "servers": [
+    {
+      "name": "Emby Home",
+      "url": "http://192.168.3.3:8096",
+      "api_key": "YOUR_EMBY_API_KEY",
+      "is_emby": true
+    },
+    {
+      "name": "Jellyfin Primary",
+      "url": "http://192.168.3.10:8096",
+      "api_key": "YOUR_JELLYFIN_API_KEY",
+      "is_emby": false
+    },
+    {
+      "name": "Jellyfin Remote",
+      "url": "http://192.168.3.20:8096",
+      "api_key": "YOUR_JELLYFIN_API_KEY_2",
+      "is_emby": false
+    }
+  ],
   "sync_threshold_seconds": 5
 }
+```
+
+### Option B: Environment Variables
+
+For simple two-server configurations, you can use these env variables:
+
+- `STATESYNC_EMBY_URL`: Emby server URL.
+- `STATESYNC_EMBY_API_KEY`: Emby API key.
+- `STATESYNC_JELLYFIN_URL`: Jellyfin server URL.
+- `STATESYNC_JELLYFIN_API_KEY`: Jellyfin API key.
+
+For multi-server configurations, set `STATESYNC_SERVERS_JSON` to a JSON array of server configs:
+
+```bash
+STATESYNC_SERVERS_JSON='[{"name":"Emby","url":"http://192.168.3.3:8096","api_key":"...","is_emby":true},{"name":"Jellyfin 1","url":"http://192.168.3.10:8096","api_key":"...","is_emby":false},{"name":"Jellyfin 2","url":"http://192.168.3.20:8096","api_key":"...","is_emby":false}]'
 ```
 
 ---
@@ -62,12 +79,9 @@ We package `statesync` as a lightweight container using **RedHat UBI-minimal (`u
        build: .
        container_name: statesync
        restart: unless-stopped
+       volumes:
+         - ./config.json:/etc/statesync/config.json:ro
        environment:
-         - STATESYNC_EMBY_URL=http://192.168.3.3:8096
-         - STATESYNC_EMBY_API_KEY=YOUR_EMBY_API_KEY
-         - STATESYNC_JELLYFIN_URL=http://192.168.3.10:8096
-         - STATESYNC_JELLYFIN_API_KEY=YOUR_JELLYFIN_API_KEY
-         - STATESYNC_SYNC_THRESHOLD_SECONDS=5
          - RUST_LOG=info
    ```
 2. Build and start the container:
@@ -75,9 +89,7 @@ We package `statesync` as a lightweight container using **RedHat UBI-minimal (`u
    docker compose up -d --build
    ```
 
-### 2. Run with Docker Volume Mounts (Using `config.json`)
-
-If you prefer using a configuration file instead of environment variables:
+### 2. Run with Docker Volume Mounts
 
 ```bash
 docker run -d \

@@ -4,14 +4,15 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
+    pub name: String,
     pub url: String,
     pub api_key: String,
+    pub is_emby: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    pub emby: ServerConfig,
-    pub jellyfin: ServerConfig,
+    pub servers: Vec<ServerConfig>,
     #[serde(default = "default_threshold_seconds")]
     pub sync_threshold_seconds: u64,
 }
@@ -22,7 +23,18 @@ fn default_threshold_seconds() -> u64 {
 
 impl Config {
     pub fn load() -> Result<Self> {
-        // 1. Try reading from environment variables first (allows easy container configuration)
+        // 1. Try environment variable JSON string first (allows multi-server container configuration)
+        if let Ok(servers_json) = env::var("STATESYNC_SERVERS_JSON") {
+            if let Ok(servers) = serde_json::from_str::<Vec<ServerConfig>>(&servers_json) {
+                let threshold = env::var("STATESYNC_SYNC_THRESHOLD_SECONDS")
+                    .ok()
+                    .and_then(|val| val.parse::<u64>().ok())
+                    .unwrap_or(5);
+                return Ok(Self { servers, sync_threshold_seconds: threshold });
+            }
+        }
+
+        // 2. Support backward-compatible standard two-server environment variables
         let emby_url = env::var("STATESYNC_EMBY_URL").ok();
         let emby_key = env::var("STATESYNC_EMBY_API_KEY").ok();
         let jf_url = env::var("STATESYNC_JELLYFIN_URL").ok();
@@ -33,14 +45,15 @@ impl Config {
 
         if let (Some(e_url), Some(e_key), Some(j_url), Some(j_key)) = (emby_url, emby_key, jf_url, jf_key) {
             return Ok(Self {
-                emby: ServerConfig { url: e_url, api_key: e_key },
-                jellyfin: ServerConfig { url: j_url, api_key: j_key },
+                servers: vec![
+                    ServerConfig { name: "Emby".to_string(), url: e_url, api_key: e_key, is_emby: true },
+                    ServerConfig { name: "Jellyfin".to_string(), url: j_url, api_key: j_key, is_emby: false },
+                ],
                 sync_threshold_seconds: threshold.unwrap_or(5),
             });
         }
 
-        // 2. Fall back to config.json
-        // Look in /etc/statesync/config.json, then /app/config.json, then ./config.json
+        // 3. Fall back to config.json
         let paths = ["/etc/statesync/config.json", "/app/config.json", "config.json"];
         for path in &paths {
             if std::path::Path::new(path).exists() {
@@ -53,7 +66,7 @@ impl Config {
         }
 
         Err(anyhow!(
-            "Configuration not found. Please provide environment variables (STATESYNC_EMBY_URL, STATESYNC_EMBY_API_KEY, STATESYNC_JELLYFIN_URL, STATESYNC_JELLYFIN_API_KEY) or a config.json file in /etc/statesync/ or current directory."
+            "Configuration not found. Please provide STATESYNC_SERVERS_JSON env variable, standard server env variables, or a config.json file."
         ))
     }
 }

@@ -5,14 +5,13 @@ services:
     build: .
     container_name: statesync
     restart: unless-stopped
-    environment:
-      - STATESYNC_EMBY_URL=http://192.168.3.3:8096
-      - STATESYNC_EMBY_API_KEY=364ac7c91b5348c3a2b15fbf5b2601ad
-      - STATESYNC_JELLYFIN_URL=http://192.168.3.10:8096
-      - STATESYNC_JELLYFIN_API_KEY=e9f0c48ceaa94742a69b8263d4773b2f
-      - STATESYNC_SYNC_THRESHOLD_SECONDS=5
-      - RUST_LOG=info
+    
+    # Option A: Mount a config.json volume (Highly recommended for 3+ servers)
+    volumes:
+      - ./config.json:/etc/statesync/config.json:ro
 
-    # Alternative: Mount a config.json volume instead of using env variables
-    # volumes:
-    #   - ./config.json:/etc/statesync/config.json:ro
+    # Option B: Or use an environment variable containing the JSON configuration array
+    # environment:
+    #   - STATESYNC_SERVERS_JSON=[{"name":"Emby","url":"http://192.168.3.3:8096","api_key":"364ac7c91b5348c3a2b15fbf5b2601ad","is_emby":true},{"name":"Jellyfin 1","url":"http://192.168.3.10:8096","api_key":"e9f0c48ceaa94742a69b8263d4773b2f","is_emby":false},{"name":"Jellyfin 2","url":"http://192.168.3.20:8096","api_key":"your_api_key","is_emby":false}]
+    #   - STATESYNC_SYNC_THRESHOLD_SECONDS=5
+    #   - RUST_LOG=info

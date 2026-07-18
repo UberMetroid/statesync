@@ -26,24 +26,29 @@ pub fn make_ws_url(url: &str, api_key: &str, is_emby: bool) -> String {
 }
 
 pub async fn handle_websocket_loop(
+    source_index: usize,
     ws_url: &str,
-    is_source_emby: bool,
-    client_target: Arc<MediaClient>,
+    target_clients: Vec<(usize, Arc<MediaClient>)>,
     state_lock: Arc<Mutex<AppState>>,
     config: Config,
 ) {
     loop {
-        info!("Connecting to {} WebSocket: {}", if is_source_emby { "Emby" } else { "Jellyfin" }, ws_url);
+        let source_name = {
+            let state = state_lock.lock().await;
+            state.caches[source_index].name.clone()
+        };
+
+        info!("Connecting to '{}' WebSocket: {}", source_name, ws_url);
         match connect_async(ws_url).await {
             Ok((mut ws_stream, _)) => {
-                info!("{} WebSocket connected.", if is_source_emby { "Emby" } else { "Jellyfin" });
+                info!("'{}' WebSocket connected.", source_name);
 
                 let start_msg = json!({
                     "MessageType": "SessionsStart",
                     "Data": "0,1000"
                 });
                 if let Err(e) = ws_stream.send(WsMessageProto::Text(start_msg.to_string().into())).await {
-                    error!("Failed to send subscribe message: {}", e);
+                    error!("Failed to send subscribe message for '{}': {}", source_name, e);
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     continue;
                 }
@@ -64,8 +69,12 @@ pub async fn handle_websocket_loop(
                                                     let position = play_state.position_ticks.unwrap_or(0);
                                                     let is_paused = play_state.is_paused.unwrap_or(false);
 
-                                                    let source_cache = if is_source_emby { &state.emby_cache } else { &state.jellyfin_cache };
-                                                    if let Some((imdb_id, tmdb_id)) = source_cache.id_to_providers.get(&item.id) {
+                                                    let source_item_providers = {
+                                                        let source_cache = &state.caches[source_index];
+                                                        source_cache.id_to_providers.get(&item.id).cloned()
+                                                    };
+
+                                                    if let Some((imdb_id, tmdb_id)) = source_item_providers {
                                                         let provider_id = if !imdb_id.is_empty() {
                                                             imdb_id.clone()
                                                         } else if !tmdb_id.is_empty() {
@@ -74,6 +83,7 @@ pub async fn handle_websocket_loop(
                                                             continue;
                                                         };
 
+                                                        // Check sync history to prevent loops
                                                         let history_key = (user_lower.clone(), provider_id.clone());
                                                         if let Some(history) = state.last_syncs.get(&history_key) {
                                                             let age = now - history.timestamp;
@@ -85,41 +95,45 @@ pub async fn handle_websocket_loop(
                                                             }
                                                         }
 
-                                                        let (target_item_id, target_user_id) = {
-                                                            let target_cache = if is_source_emby { &state.jellyfin_cache } else { &state.emby_cache };
-                                                            let mut t_item_id = None;
-                                                            if !imdb_id.is_empty() {
-                                                                t_item_id = target_cache.imdb_to_id.get(imdb_id).cloned();
-                                                            }
-                                                            if t_item_id.is_none() && !tmdb_id.is_empty() {
-                                                                t_item_id = target_cache.tmdb_to_id.get(tmdb_id).cloned();
-                                                            }
-                                                            let t_user_id = target_cache.users.get(&user_lower).cloned();
-                                                            (t_item_id, t_user_id)
-                                                        };
-
-                                                        if let (Some(t_item_id), Some(t_user_id)) = (target_item_id, target_user_id) {
-                                                            state.last_syncs.insert(history_key, SyncHistoryValue {
-                                                                position_ticks: position,
-                                                                timestamp: now,
-                                                            });
-
-                                                            info!(
-                                                                "Syncing playstate for user '{}' from {} -> {}: '{}' at {:.1}s (paused: {})",
-                                                                user_name,
-                                                                if is_source_emby { "Emby" } else { "Jellyfin" },
-                                                                if is_source_emby { "Jellyfin" } else { "Emby" },
-                                                                item.name.as_deref().unwrap_or(&item.id),
-                                                                position as f64 / 10_000_000.0,
-                                                                is_paused
-                                                            );
-
-                                                            let client_target_clone = client_target.clone();
-                                                            tokio::spawn(async move {
-                                                                if let Err(e) = client_target_clone.update_progress(&t_user_id, &t_item_id, position, is_paused).await {
-                                                                    error!("Error updating target playstate progress: {}", e);
+                                                        // Sync to all OTHER target servers
+                                                        for &(target_index, ref client_target) in &target_clients {
+                                                            let (target_item_id, target_user_id, target_name) = {
+                                                                let target_cache = &state.caches[target_index];
+                                                                let mut t_item_id = None;
+                                                                if !imdb_id.is_empty() {
+                                                                    t_item_id = target_cache.imdb_to_id.get(&imdb_id).cloned();
                                                                 }
-                                                            });
+                                                                if t_item_id.is_none() && !tmdb_id.is_empty() {
+                                                                    t_item_id = target_cache.tmdb_to_id.get(&tmdb_id).cloned();
+                                                                }
+                                                                let t_user_id = target_cache.users.get(&user_lower).cloned();
+                                                                let t_name = target_cache.name.clone();
+                                                                (t_item_id, t_user_id, t_name)
+                                                            };
+
+                                                            if let (Some(t_item_id), Some(t_user_id)) = (target_item_id, target_user_id) {
+                                                                state.last_syncs.insert(history_key.clone(), SyncHistoryValue {
+                                                                    position_ticks: position,
+                                                                    timestamp: now,
+                                                                });
+
+                                                                info!(
+                                                                    "Syncing playstate for user '{}' from '{}' -> '{}': '{}' at {:.1}s (paused: {})",
+                                                                    user_name,
+                                                                    source_name,
+                                                                    target_name,
+                                                                    item.name.as_deref().unwrap_or(&item.id),
+                                                                    position as f64 / 10_000_000.0,
+                                                                    is_paused
+                                                                );
+
+                                                                let client_target_clone = client_target.clone();
+                                                                tokio::spawn(async move {
+                                                                    if let Err(e) = client_target_clone.update_progress(&t_user_id, &t_item_id, position, is_paused).await {
+                                                                        error!("Error updating target playstate progress: {}", e);
+                                                                    }
+                                                                });
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -131,15 +145,15 @@ pub async fn handle_websocket_loop(
                         }
                         Ok(_) => {}
                         Err(e) => {
-                            error!("WebSocket stream error: {}", e);
+                            error!("WebSocket stream error on '{}': {}", source_name, e);
                             break;
                         }
                     }
                 }
-                warn!("{} WebSocket disconnected. Reconnecting in 5 seconds...", if is_source_emby { "Emby" } else { "Jellyfin" });
+                warn!("'{}' WebSocket disconnected. Reconnecting in 5 seconds...", source_name);
             }
             Err(e) => {
-                error!("Failed to connect to {} WebSocket: {}. Retrying in 5 seconds...", if is_source_emby { "Emby" } else { "Jellyfin" }, e);
+                error!("Failed to connect to '{}' WebSocket: {}. Retrying in 5 seconds...", source_name, e);
             }
         }
         tokio::time::sleep(Duration::from_secs(5)).await;

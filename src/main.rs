@@ -17,64 +17,56 @@ use crate::websocket::{make_ws_url, handle_websocket_loop};
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
-    info!("Starting Emby-Jellyfin Playstate Sync Sidecar...");
+    info!("Starting Multi-Server Playstate Sync Sidecar...");
 
     let config = Config::load()?;
+    let mut clients = Vec::new();
+    let mut caches = Vec::new();
 
-    info!("Connecting to Emby: {}", config.emby.url);
-    let emby_client = Arc::new(MediaClient::new(config.emby.url.clone(), config.emby.api_key.clone(), true));
-    
-    info!("Connecting to Jellyfin: {}", config.jellyfin.url);
-    let jellyfin_client = Arc::new(MediaClient::new(config.jellyfin.url.clone(), config.jellyfin.api_key.clone(), false));
+    // Initialize all clients and cache metadata
+    for s in &config.servers {
+        info!("Connecting to server '{}' ({})", s.name, s.url);
+        let client = Arc::new(MediaClient::new(s.url.clone(), s.api_key.clone(), s.is_emby));
+        
+        info!("Initializing metadata cache for '{}'...", s.name);
+        let cache = init_server_cache(&s.name, &client).await
+            .with_context(|| format!("Failed to initialize cache for server '{}'", s.name))?;
+        
+        info!("Cache loaded for '{}': {} users, {} matched media items.", s.name, cache.users.len(), cache.id_to_providers.len());
+        
+        clients.push(client);
+        caches.push(cache);
+    }
 
-    // Initialize Caches
-    info!("Initializing Emby metadata cache...");
-    let emby_cache = init_server_cache(&emby_client).await
-        .context("Failed to initialize Emby metadata cache")?;
-    info!("Emby cache loaded: {} users, {} matched media items.", emby_cache.users.len(), emby_cache.id_to_providers.len());
+    let app_state = Arc::new(Mutex::new(AppState::new(caches)));
 
-    info!("Initializing Jellyfin metadata cache...");
-    let jellyfin_cache = init_server_cache(&jellyfin_client).await
-        .context("Failed to initialize Jellyfin metadata cache")?;
-    info!("Jellyfin cache loaded: {} users, {} matched media items.", jellyfin_cache.users.len(), jellyfin_cache.id_to_providers.len());
+    // Spawn WebSocket tasks for each server
+    for (i, s) in config.servers.iter().enumerate() {
+        let ws_url = make_ws_url(&s.url, &s.api_key, s.is_emby);
+        let state_clone = app_state.clone();
+        let config_clone = config.clone();
 
-    let app_state = Arc::new(Mutex::new(AppState::new(emby_cache, jellyfin_cache)));
+        // Target clients list is all other clients
+        let mut target_clients = Vec::new();
+        for (j, client) in clients.iter().enumerate() {
+            if j != i {
+                target_clients.push((j, client.clone()));
+            }
+        }
 
-    let emby_ws_url = make_ws_url(&config.emby.url, &config.emby.api_key, true);
-    let jellyfin_ws_url = make_ws_url(&config.jellyfin.url, &config.jellyfin.api_key, false);
+        tokio::spawn(async move {
+            handle_websocket_loop(
+                i,
+                &ws_url,
+                target_clients,
+                state_clone,
+                config_clone,
+            ).await;
+        });
+    }
 
-    // Launch Emby WS listener
-    let emby_ws_url_clone = emby_ws_url.clone();
-    let jellyfin_client_clone = jellyfin_client.clone();
-    let state_clone = app_state.clone();
-    let config_clone = config.clone();
-    tokio::spawn(async move {
-        handle_websocket_loop(
-            &emby_ws_url_clone,
-            true, // source is emby
-            jellyfin_client_clone,
-            state_clone,
-            config_clone,
-        ).await;
-    });
-
-    // Launch Jellyfin WS listener
-    let jellyfin_ws_url_clone = jellyfin_ws_url.clone();
-    let emby_client_clone = emby_client.clone();
-    let state_clone2 = app_state.clone();
-    let config_clone2 = config.clone();
-    tokio::spawn(async move {
-        handle_websocket_loop(
-            &jellyfin_ws_url_clone,
-            false, // source is jellyfin
-            emby_client_clone,
-            state_clone2,
-            config_clone2,
-        ).await;
-    });
-
-    info!("Playstate Sync Sidecar started. Press Ctrl+C to stop.");
+    info!("Multi-Server Playstate Sync Sidecar started. Press Ctrl+C to stop.");
     tokio::signal::ctrl_c().await?;
-    info!("Stopping Playstate Sync Sidecar.");
+    info!("Stopping Multi-Server Playstate Sync Sidecar.");
     Ok(())
 }
