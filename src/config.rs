@@ -122,3 +122,44 @@ pub fn get_config_path() -> &'static str {
         "config.json"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_deserialization_with_defaults() {
+        let json = r#"{
+            "servers": [
+                {
+                    "name": "green",
+                    "url": "http://localhost:8096",
+                    "api_key": "secret",
+                    "is_emby": true
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.servers.len(), 1);
+        assert_eq!(config.servers[0].name, "green");
+        assert_eq!(config.sync_threshold_seconds, 5);
+        assert_eq!(config.servers[0].sync_direction, "both");
+        assert!(config.user_mappings.is_empty());
+    }
+
+    #[test]
+    fn test_config_with_custom_user_mappings() {
+        let json = r#"{
+            "servers": [],
+            "sync_threshold_seconds": 10,
+            "user_mappings": [
+                ["john doe", "john"],
+                ["jane", "jane_doe"]
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.sync_threshold_seconds, 10);
+        assert_eq!(config.user_mappings.len(), 2);
+        assert_eq!(config.user_mappings[0], vec!["john doe", "john"]);
+    }
+}

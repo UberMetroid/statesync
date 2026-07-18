@@ -38,44 +38,26 @@ pub fn create_router(web_state: Arc<WebServerState>) -> Router {
         .layer(Extension(web_state))
 }
 
-async fn serve_index() -> Html<&'static str> {
-    Html(include_str!("index.html"))
-}
+async fn serve_index() -> Html<&'static str> { Html(include_str!("index.html")) }
 
 async fn serve_manifest() -> impl axum::response::IntoResponse {
-    let manifest = r##"{
-  "name": "StateSync",
-  "short_name": "StateSync",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#03060f",
-  "theme_color": "#03060f",
-  "icons": [
-    {"src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml"},
-    {"src": "/icon.svg", "sizes": "512x512", "type": "image/svg+xml"}
-  ]
-}"##;
-    ([("content-type", "application/manifest+json")], manifest)
+    ([("content-type", "application/manifest+json")], r##"{"name":"StateSync","short_name":"StateSync","start_url":"/","display":"standalone","background_color":"#03060f","theme_color":"#03060f","icons":[{"src":"/icon.svg","sizes":"192x192","type":"image/svg+xml"},{"src":"/icon.svg","sizes":"512x512","type":"image/svg+xml"}]}"##)
 }
 
 async fn serve_icon() -> impl axum::response::IntoResponse {
-    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#03060f"/><circle cx="50" cy="50" r="30" stroke="#00f0ff" stroke-width="6" fill="none"/></svg>"##;
-    ([("content-type", "image/svg+xml")], svg)
+    ([("content-type", "image/svg+xml")], r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#03060f"/><circle cx="50" cy="50" r="30" stroke="#00f0ff" stroke-width="6" fill="none"/></svg>"##)
 }
 
-async fn serve_favicon() -> impl axum::response::IntoResponse {
-    let favicon = include_bytes!("favicon.jpg");
-    ([("content-type", "image/jpeg")], favicon.as_slice())
-}
+async fn serve_favicon() -> impl axum::response::IntoResponse { ([("content-type", "image/jpeg")], include_bytes!("favicon.jpg").as_slice()) }
 
 async fn serve_sw() -> impl axum::response::IntoResponse {
-    let sw = r#"self.addEventListener('install', (e) => { self.skipWaiting(); });
-self.addEventListener('fetch', (e) => { e.respondWith(fetch(e.request)); });"#;
-    ([("content-type", "application/javascript")], sw)
+    ([("content-type", "application/javascript")], "self.addEventListener('install',(e)=>{self.skipWaiting();});self.addEventListener('fetch',(e)=>{e.respondWith(fetch(e.request));});")
 }
 
 fn mask_api_key(key: &str) -> String {
-    if key.len() <= 8 {
+    if key.is_empty() {
+        "".to_string()
+    } else if key.len() <= 8 {
         "••••••••".to_string()
     } else {
         format!("{}••••••••{}", &key[..4], &key[key.len() - 4..])
@@ -237,4 +219,18 @@ async fn get_status(Extension(state): Extension<Arc<WebServerState>>) -> Json<se
         "active_sessions": active_sessions,
         "sync_logs": app_state.sync_logs
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mask_api_key() {
+        assert_eq!(mask_api_key(""), "");
+        assert_eq!(mask_api_key("12345"), "••••••••");
+        assert_eq!(mask_api_key("12345678"), "••••••••");
+        assert_eq!(mask_api_key("123456789"), "1234••••••••6789");
+        assert_eq!(mask_api_key("my_secret_token_1234"), "my_s••••••••1234");
+    }
 }
