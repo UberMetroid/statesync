@@ -49,8 +49,13 @@ pub struct MediaClient {
 
 impl MediaClient {
     pub fn new(url: String, api_key: String, is_emby: bool) -> Self {
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| Client::new());
         Self {
-            client: Client::new(),
+            client,
             url: url.trim_end_matches('/').to_string(),
             api_key,
             is_emby,

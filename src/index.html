@@ -160,7 +160,7 @@
             row.innerHTML = `<span style="color:var(--green)">[ MAPPED ]</span> <span style="color:#fff">${u}</span>`;
             usersDiv.appendChild(row);
           });
-        } else { usersDiv.innerHTML = '<div style="color:var(--accent)">NO SYNCD LDAP USERS FOUND</div>'; }
+        } else { usersDiv.innerHTML = '<div style="color:var(--accent)">NO MAPPED USERS FOUND</div>'; }
         const logsDiv = document.getElementById('syncLogs');
         if (status.sync_logs && status.sync_logs.length > 0) {
           logsDiv.innerHTML = '';
