@@ -66,7 +66,6 @@ async fn main() -> Result<()> {
         let mut caches = Vec::new();
 
         // Initialize all clients and cache metadata
-        let mut init_success = true;
         for s in &config.servers {
             {
                 let mut state = app_state.lock().await;
@@ -80,29 +79,23 @@ async fn main() -> Result<()> {
             match init_server_cache(&s.name, &client).await {
                 Ok(cache) => {
                     info!("Cache loaded for '{}': {} users, {} matched media items.", s.name, cache.users.len(), cache.id_to_providers.len());
-                    {
-                        let mut state = app_state.lock().await;
-                        state.log_event("success", &format!("Cache loaded for '{}': {} users, {} media", s.name, cache.users.len(), cache.id_to_providers.len()));
-                    }
+                    app_state.lock().await.log_event("success", &format!("Cache loaded for '{}': {} users, {} media", s.name, cache.users.len(), cache.id_to_providers.len()));
                     clients.push(client);
                     caches.push(cache);
                 }
                 Err(e) => {
-                    error!("Failed to initialize cache for server '{}': {}. Re-trying on config change...", s.name, e);
-                    {
-                        let mut state = app_state.lock().await;
-                        state.log_event("error", &format!("Failed to initialize cache for server '{}': {}", s.name, e));
-                    }
-                    init_success = false;
-                    break;
+                    warn!("Failed to initialize cache for server '{}' on startup: {}. Retrying in background...", s.name, e);
+                    app_state.lock().await.log_event("warn", &format!("Offline server '{}' on startup. Retrying in background...", s.name));
+                    clients.push(client);
+                    caches.push(crate::state::ServerCache {
+                        name: s.name.clone(),
+                        users: std::collections::HashMap::new(),
+                        imdb_to_id: std::collections::HashMap::new(),
+                        tmdb_to_id: std::collections::HashMap::new(),
+                        id_to_providers: std::collections::HashMap::new(),
+                    });
                 }
             }
-        }
-
-        if !init_success {
-            // Wait for next config change
-            let _ = reload_rx.recv().await;
-            continue;
         }
 
         // Update shared AppState for the Web UI status report

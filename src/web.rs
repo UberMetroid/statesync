@@ -6,6 +6,7 @@ use axum::{
 use tokio::sync::{mpsc, Mutex};
 use serde_json::json;
 use serde::Deserialize;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
 use crate::config::Config;
 use crate::state::AppState;
@@ -32,7 +33,8 @@ pub fn create_router(web_state: Arc<WebServerState>) -> Router {
         .route("/favicon.jpg", get(serve_favicon))
         .route("/api/config", get(get_config).post(post_config))
         .route("/api/status", get(get_status))
-        .route("/api/test_connection", get(get_config).post(test_connection)) // bind get just to support router routing check
+        .route("/api/poster", get(serve_poster))
+        .route("/api/test_connection", get(get_config).post(test_connection))
         .layer(Extension(web_state))
 }
 
@@ -49,16 +51,8 @@ async fn serve_manifest() -> impl axum::response::IntoResponse {
   "background_color": "#03060f",
   "theme_color": "#03060f",
   "icons": [
-    {
-      "src": "/icon.svg",
-      "sizes": "192x192",
-      "type": "image/svg+xml"
-    },
-    {
-      "src": "/icon.svg",
-      "sizes": "512x512",
-      "type": "image/svg+xml"
-    }
+    {"src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml"},
+    {"src": "/icon.svg", "sizes": "512x512", "type": "image/svg+xml"}
   ]
 }"##;
     ([("content-type", "application/manifest+json")], manifest)
@@ -89,7 +83,7 @@ fn mask_api_key(key: &str) -> String {
 }
 
 async fn get_config() -> Json<Config> {
-    let mut config = Config::load().unwrap_or(Config { servers: vec![], sync_threshold_seconds: 5 });
+    let mut config = Config::load().unwrap_or(Config { servers: vec![], sync_threshold_seconds: 5, user_mappings: vec![] });
     for s in &mut config.servers {
         s.api_key = mask_api_key(&s.api_key);
     }
@@ -100,11 +94,11 @@ async fn post_config(
     Extension(state): Extension<Arc<WebServerState>>,
     Json(mut new_config): Json<Config>,
 ) -> Json<serde_json::Value> {
-    // If the new config contains masked keys, merge them with the existing keys on disk
     if let Ok(old_config) = Config::load() {
         for s in &mut new_config.servers {
             if s.api_key.contains('•') || s.api_key.trim().is_empty() {
-                if let Some(old_s) = old_config.servers.iter().find(|os| os.url == s.url) {
+                // Fixed: Match by name OR url to prevent key loss on URL update
+                if let Some(old_s) = old_config.servers.iter().find(|os| os.url == s.url || os.name == s.name) {
                     s.api_key = old_s.api_key.clone();
                 }
             }
@@ -135,9 +129,53 @@ async fn test_connection(Json(req): Json<TestConnRequest>) -> Json<serde_json::V
     }
 }
 
+async fn serve_poster(
+    Extension(_state): Extension<Arc<WebServerState>>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl axum::response::IntoResponse {
+    let server_name = params.get("server").cloned().unwrap_or_default();
+    let item_id = params.get("item_id").cloned().unwrap_or_default();
+    let config = match Config::load() {
+        Ok(cfg) => cfg,
+        Err(_) => return axum::response::Response::builder()
+            .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+            .body(axum::body::Body::from("Internal Error"))
+            .unwrap(),
+    };
+    let server_cfg = match config.servers.iter().find(|s| s.name == server_name) {
+        Some(s) => s,
+        None => return axum::response::Response::builder()
+            .status(axum::http::StatusCode::NOT_FOUND)
+            .body(axum::body::Body::from("Not Found"))
+            .unwrap(),
+    };
+
+    let client = MediaClient::new(server_cfg.url.clone(), server_cfg.api_key.clone(), server_cfg.is_emby);
+    let path = format!("/Items/{}/Images/Primary", item_id);
+    let url = client.url_path(&path);
+    let builder = client.add_auth_headers(client.client.get(&url));
+
+    match builder.send().await {
+        Ok(resp) => {
+            let content_type = resp.headers().get("content-type").and_then(|h| h.to_str().ok()).unwrap_or("image/jpeg").to_string();
+            if let Ok(bytes) = resp.bytes().await {
+                let mut res = axum::response::Response::new(axum::body::Body::from(bytes));
+                if let Ok(val) = axum::http::HeaderValue::from_str(&content_type) {
+                    res.headers_mut().insert(axum::http::header::CONTENT_TYPE, val);
+                }
+                return res;
+            }
+        }
+        Err(_) => {}
+    }
+    axum::response::Response::builder()
+        .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+        .body(axum::body::Body::empty())
+        .unwrap()
+}
+
 async fn get_status(Extension(state): Extension<Arc<WebServerState>>) -> Json<serde_json::Value> {
     let app_state = state.app_state.lock().await;
-    
     let mut servers_status = Vec::new();
     for (i, cache) in app_state.caches.iter().enumerate() {
         let ws_status = app_state.websocket_statuses.get(i).cloned().unwrap_or_else(|| "Offline".to_string());
@@ -154,38 +192,34 @@ async fn get_status(Extension(state): Extension<Arc<WebServerState>>) -> Json<se
     let mut processed = Vec::new();
     for (srv_idx, cache) in app_state.caches.iter().enumerate() {
         for username in cache.users.keys() {
-            if processed.contains(&(srv_idx, username.clone())) {
-                continue;
-            }
+            if processed.contains(&(srv_idx, username.clone())) { continue; }
             let mut group = vec![None; app_state.caches.len()];
             group[srv_idx] = Some(username.clone());
             processed.push((srv_idx, username.clone()));
             let mut has_any_match = false;
+            let config = Config::load().unwrap_or_else(|_| Config { servers: Vec::new(), sync_threshold_seconds: 5, user_mappings: Vec::new() });
             for (other_idx, other_cache) in app_state.caches.iter().enumerate() {
-                if other_idx == srv_idx {
-                    continue;
-                }
-                let matched_name = other_cache.users.keys().find(|u| {
-                    u.to_lowercase().contains(&username.to_lowercase()) || username.to_lowercase().contains(&u.to_lowercase())
-                }).cloned();
+                if other_idx == srv_idx { continue; }
+                let matched_name = crate::state::find_mapped_user_id(username, &other_cache.users, &config.user_mappings)
+                    .and_then(|target_id| {
+                        other_cache.users.iter()
+                            .find(|(_, id)| *id == &target_id)
+                            .map(|(name, _)| name.clone())
+                    });
                 if let Some(name) = matched_name {
                     group[other_idx] = Some(name.clone());
                     processed.push((other_idx, name));
                     has_any_match = true;
                 }
             }
-            if has_any_match {
-                mapped_users.push(group);
-            }
+            if has_any_match { mapped_users.push(group); }
         }
     }
     
-    let config = Config::load().unwrap_or_else(|_| Config { servers: Vec::new(), sync_threshold_seconds: 5 });
     let mut active_sessions = Vec::new();
     for ((server, _), (user, item, position, is_paused, item_id)) in &app_state.active_sessions {
-        let poster_url = config.servers.iter()
-            .find(|s| s.name == *server)
-            .map(|s| format!("{}/Items/{}/Images/Primary?api_key={}", s.url.trim_end_matches('/'), item_id, s.api_key));
+        // Fixed: Proxy image requests dynamically without exposing server credentials
+        let poster_url = format!("/api/poster?server={}&item_id={}", utf8_percent_encode(server, NON_ALPHANUMERIC), item_id);
         active_sessions.push(json!({
             "server": server,
             "user": user,

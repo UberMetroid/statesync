@@ -73,34 +73,9 @@
     <div class="card"><h2>[ TERMINAL LOG FEED ]</h2><div class="log-feed" id="syncLogs"></div></div>
   </div>
 
-  <div class="modal" id="serverModal">
-    <div class="modal-content">
-      <h2 id="modalTitle">[ CONFIGURE MODULE ]</h2>
-      <form id="serverForm">
-        <div class="form-group"><label>MODULE TYPE</label><select id="serverType"><option value="jellyfin">JELLYFIN</option><option value="emby">EMBY</option></select></div>
-        <div class="form-group"><label>IDENT NAME</label><input type="text" id="serverName" required></div>
-        <div class="form-group"><label>TRANSCEIVER IP:PORT</label><input type="url" id="serverUrl" placeholder="http://192.168.3.10:8096" required></div>
-        <div class="form-group"><label>ACCESS KEY (API)</label><input type="password" id="serverKey" required></div>
-        <div class="form-group"><label>SYNC DIRECTION</label><select id="serverDirection"><option value="both">BI-DIRECTIONAL</option><option value="send">SEND ONLY</option><option value="receive">RECEIVE ONLY</option></select></div>
-        <div style="display: flex; justify-content: space-between; margin-top: 20px;">
-          <button type="submit" class="btn">[ SAVE ]</button>
-          <button type="button" class="btn btn-accent" onclick="testConnection()">[ TEST LINK ]</button>
-          <button type="button" class="btn btn-danger" onclick="closeModal('serverModal')">[ ABORT ]</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  <div class="modal" id="serverModal"><div class="modal-content"><h2 id="modalTitle">[ CONFIGURE MODULE ]</h2><form id="serverForm"><div class="form-group"><label>MODULE TYPE</label><select id="serverType"><option value="jellyfin">JELLYFIN</option><option value="emby">EMBY</option></select></div><div class="form-group"><label>IDENT NAME</label><input type="text" id="serverName" required></div><div class="form-group"><label>TRANSCEIVER IP:PORT</label><input type="url" id="serverUrl" placeholder="http://192.168.3.10:8096" required></div><div class="form-group"><label>ACCESS KEY (API)</label><input type="password" id="serverKey" required></div><div class="form-group"><label>SYNC DIRECTION</label><select id="serverDirection"><option value="both">BI-DIRECTIONAL</option><option value="send">SEND ONLY</option><option value="receive">RECEIVE ONLY</option></select></div><div style="display:flex;justify-content:space-between;margin-top:20px;"><button type="submit" class="btn">[ SAVE ]</button><button type="button" class="btn btn-accent" onclick="testConnection()">[ TEST LINK ]</button><button type="button" class="btn btn-danger" onclick="closeModal('serverModal')">[ ABORT ]</button></div></form></div></div>
 
-  <div class="modal" id="settingsModal">
-    <div class="modal-content">
-      <h2>[ GLOBAL SETTINGS ]</h2>
-      <div class="form-group"><label>SYNC WINDOW THRESHOLD (SECONDS)</label><input type="number" id="syncThreshold" min="1"></div>
-      <div style="display: flex; gap: 12px; margin-top: 20px;">
-        <button class="btn" onclick="saveSettings()">[ SAVE ]</button>
-        <button class="btn btn-danger" onclick="closeModal('settingsModal')">[ ABORT ]</button>
-      </div>
-    </div>
-  </div>
+  <div class="modal" id="settingsModal"><div class="modal-content"><h2>[ GLOBAL SETTINGS ]</h2><div class="form-group"><label>SYNC WINDOW THRESHOLD (SECONDS)</label><input type="number" id="syncThreshold" min="1"></div><div class="form-group"><label>MANUAL USER MAPPINGS (COMMA-SEPARATED, ONE GROUP PER LINE)</label><textarea id="cfgUserMappings" rows="3" style="background:#03060f;border:1px solid var(--accent);color:#fff;font-family:monospace;width:100%;box-sizing:border-box;padding:8px;" placeholder="john doe, john&#10;jane, jane_doe"></textarea></div><div style="display:flex;gap:12px;margin-top:20px;"><button class="btn" onclick="saveSettings()">[ SAVE ]</button><button class="btn btn-danger" onclick="closeModal('settingsModal')">[ ABORT ]</button></div></div></div>
 
   <div class="toast" id="toast"></div>
 
@@ -114,6 +89,7 @@
         const [configRes, statusRes] = await Promise.all([fetch('/api/config'), fetch('/api/status')]);
         currentConfig = await configRes.json(); const status = await statusRes.json();
         $('syncThreshold').value = currentConfig.sync_threshold_seconds;
+        $('cfgUserMappings').value = (currentConfig.user_mappings || []).map(group => group.join(', ')).join('\n');
         const statusSpan = $('systemStatusText');
         if (currentConfig.servers.length === 0) {
           statusSpan.innerText = '[ SYNC ENGINE: IDLE ]'; statusSpan.style.color = 'var(--border)';
@@ -235,7 +211,18 @@
       closeModal('serverModal'); await saveConfig();
     });
     async function deleteServer(idx) { currentConfig.servers.splice(idx, 1); await saveConfig(); }
-    async function saveSettings() { currentConfig.sync_threshold_seconds = parseInt($('syncThreshold').value); closeModal('settingsModal'); await saveConfig(); }
+    async function saveSettings() {
+      currentConfig.sync_threshold_seconds = parseInt($('syncThreshold').value);
+      const mappingsLines = $('cfgUserMappings').value.split('\n');
+      const user_mappings = [];
+      mappingsLines.forEach(line => {
+        const parts = line.split(',').map(p => p.trim()).filter(p => p.length > 0);
+        if (parts.length > 0) user_mappings.push(parts);
+      });
+      currentConfig.user_mappings = user_mappings;
+      closeModal('settingsModal');
+      await saveConfig();
+    }
     async function saveConfig() {
       try {
         const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentConfig) });

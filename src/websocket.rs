@@ -1,11 +1,12 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use serde_json::json;
 use tokio::sync::{Mutex, broadcast};
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessageProto;
 use tracing::{info, warn, error};
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
 use crate::config::Config;
 use crate::client::{WsMessage, SessionInfo, MediaClient};
@@ -13,8 +14,16 @@ use crate::state::AppState;
 
 pub fn make_ws_url(url: &str, api_key: &str, is_emby: bool) -> String {
     let base = url.trim_end_matches('/');
-    let ws_base = if base.starts_with("https://") { base.replace("https://", "wss://") } else if base.starts_with("http://") { base.replace("http://", "ws://") } else { format!("ws://{}", base) };
-    format!("{}{}?api_key={}&deviceId=statesync", ws_base, if is_emby { "/embywebsocket" } else { "/socket" }, api_key)
+    let ws_base = if base.starts_with("https://") { 
+        base.replace("https://", "wss://") 
+    } else if base.starts_with("http://") { 
+        base.replace("http://", "ws://") 
+    } else { 
+        format!("ws://{}", base) 
+    };
+    
+    let encoded_key = utf8_percent_encode(api_key, NON_ALPHANUMERIC).to_string();
+    format!("{}{}?api_key={}&deviceId=statesync", ws_base, if is_emby { "/embywebsocket" } else { "/socket" }, encoded_key)
 }
 
 pub async fn handle_websocket_loop(
@@ -32,6 +41,31 @@ pub async fn handle_websocket_loop(
             if source_index >= state.caches.len() { return; }
             state.caches[source_index].name.clone()
         };
+
+        // Self-Healing Cache Initialization for offline servers
+        let cache_uninitialized = {
+            let state = state_lock.lock().await;
+            source_index < state.caches.len() && state.caches[source_index].users.is_empty()
+        };
+        if cache_uninitialized {
+            info!("Attempting background cache initialization for '{}'...", source_name);
+            match crate::state::init_server_cache(&source_name, &source_client).await {
+                Ok(cache) => {
+                    let mut state = state_lock.lock().await;
+                    if source_index < state.caches.len() { state.caches[source_index] = cache; }
+                    info!("Cache initialized successfully in background for '{}'.", source_name);
+                    state.log_event("success", &format!("Cache initialized for '{}'", source_name));
+                }
+                Err(e) => {
+                    warn!("Background cache init failed for '{}': {}. Retrying in 10s...", source_name, e);
+                    tokio::select! {
+                        _ = shutdown_rx.recv() => return,
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {}
+                    }
+                    continue;
+                }
+            }
+        }
 
         state_lock.lock().await.websocket_statuses[source_index] = "Reconnecting".to_string();
 
@@ -58,6 +92,7 @@ pub async fn handle_websocket_loop(
                     continue;
                 }
 
+                let mut last_activity = Instant::now();
                 let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
                 ping_interval.tick().await;
 
@@ -68,6 +103,10 @@ pub async fn handle_websocket_loop(
                             return;
                         }
                         _ = ping_interval.tick() => {
+                            if last_activity.elapsed() > Duration::from_secs(45) {
+                                warn!("WebSocket connection to '{}' timed out. Reconnecting...", source_name);
+                                break;
+                            }
                             if let Err(e) = ws_stream.send(WsMessageProto::Ping(Vec::new().into())).await {
                                 warn!("Failed to send ping to '{}': {}", source_name, e);
                                 break;
@@ -81,6 +120,8 @@ pub async fn handle_websocket_loop(
                         Some(m) => m,
                         None => break,
                     };
+
+                    last_activity = Instant::now();
 
                     match msg {
                         Ok(WsMessageProto::Text(text)) => {
@@ -128,6 +169,7 @@ pub async fn handle_websocket_loop(
                                                     let state_lock_clone = state_lock.clone();
                                                     let target_clients_clone = target_clients.clone();
                                                     let config_clone = config.clone();
+                                                    let source_client_clone = source_client.clone();
 
                                                     tokio::spawn(async move {
                                                         crate::sync::sync_progress_to_targets(
@@ -140,6 +182,7 @@ pub async fn handle_websocket_loop(
                                                             &state_lock_clone,
                                                             &target_clients_clone,
                                                             &config_clone,
+                                                            &source_client_clone,
                                                         ).await;
                                                     });
                                                 }
@@ -168,6 +211,7 @@ pub async fn handle_websocket_loop(
                                                     let state_lock_clone = state_lock.clone();
                                                     let target_clients_clone = target_clients.clone();
                                                     let config_clone = config.clone();
+                                                    let source_client_clone = source_client.clone();
 
                                                     tokio::spawn(async move {
                                                         crate::sync::sync_progress_to_targets(
@@ -180,6 +224,7 @@ pub async fn handle_websocket_loop(
                                                             &state_lock_clone,
                                                             &target_clients_clone,
                                                             &config_clone,
+                                                            &source_client_clone,
                                                         ).await;
                                                     });
                                                 }
@@ -202,7 +247,7 @@ pub async fn handle_websocket_loop(
                         }
                     }
                 }
-                warn!("'{}' WebSocket disconnected. Reconnecting in 5 seconds...", source_name);
+                warn!("'{}' WebSocket disconnected. Reconnecting...", source_name);
                 state_lock.lock().await.log_event("warn", &format!("'{}' WebSocket disconnected. Reconnecting...", source_name));
             }
             Err(e) => {

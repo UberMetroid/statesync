@@ -21,6 +21,8 @@ pub struct Config {
     pub servers: Vec<ServerConfig>,
     #[serde(default = "default_threshold_seconds")]
     pub sync_threshold_seconds: u64,
+    #[serde(default)]
+    pub user_mappings: Vec<Vec<String>>,
 }
 
 fn default_threshold_seconds() -> u64 {
@@ -104,6 +106,7 @@ impl Config {
         Ok(Self {
             servers,
             sync_threshold_seconds: threshold,
+            user_mappings: Vec::new(),
         })
     }
 }

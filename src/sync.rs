@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use tokio::sync::Mutex;
 use tracing::{info, error};
 
@@ -17,22 +17,48 @@ pub async fn sync_progress_to_targets(
     state_lock: &Arc<Mutex<AppState>>,
     target_clients: &[(usize, Arc<MediaClient>)],
     config: &Config,
+    source_client: &Arc<MediaClient>,
 ) {
+    let user_lower = user_name.to_lowercase();
+
+    // 1. Resolve source item's provider IDs (with dynamic cache miss fallback)
     let (imdb_id, tmdb_id) = {
         let state = state_lock.lock().await;
         if source_index >= state.caches.len() { return; }
-        match state.caches[source_index].id_to_providers.get(source_item_id) {
-            Some(provs) => provs.clone(),
-            None => return,
+        
+        if let Some(provs) = state.caches[source_index].id_to_providers.get(source_item_id) {
+            provs.clone()
+        } else {
+            drop(state);
+            let src_user_id = {
+                let state_read = state_lock.lock().await;
+                state_read.caches[source_index].users.get(&user_lower).cloned()
+            };
+            
+            if let Some(uid) = src_user_id {
+                info!("Cache miss on '{}' for item {}. Resolving details dynamically...", source_name, source_item_id);
+                if let Ok((imdb, tmdb)) = source_client.get_item_providers(&uid, source_item_id).await {
+                    let mut state_write = state_lock.lock().await;
+                    state_write.caches[source_index].id_to_providers.insert(source_item_id.to_string(), (imdb.clone(), tmdb.clone()));
+                    if !imdb.is_empty() { state_write.caches[source_index].imdb_to_id.insert(imdb.clone(), source_item_id.to_string()); }
+                    if !tmdb.is_empty() { state_write.caches[source_index].tmdb_to_id.insert(tmdb.clone(), source_item_id.to_string()); }
+                    (imdb, tmdb)
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
         }
     };
 
-    let user_lower = user_name.to_lowercase();
+    if imdb_id.is_empty() && tmdb_id.is_empty() { return; }
+
     for &(target_index, ref client_target) in target_clients {
         if config.servers[target_index].sync_direction == "send" { continue; }
 
         let mut state = state_lock.lock().await;
-        let mut target_user_id = crate::state::find_mapped_user_id(&user_lower, &state.caches[target_index].users);
+        let mut target_user_id = crate::state::find_mapped_user_id(&user_lower, &state.caches[target_index].users, &config.user_mappings);
         if target_user_id.is_none() {
             drop(state);
             if let Ok(new_users) = client_target.get_users().await {
@@ -40,26 +66,70 @@ pub async fn sync_progress_to_targets(
                 if target_index < state_write.caches.len() { state_write.caches[target_index].users = new_users; }
             }
             state = state_lock.lock().await;
-            target_user_id = crate::state::find_mapped_user_id(&user_lower, &state.caches[target_index].users);
+            target_user_id = crate::state::find_mapped_user_id(&user_lower, &state.caches[target_index].users, &config.user_mappings);
         }
 
-        let (target_item_id, target_name) = {
+        // 2. Resolve target item ID (with dynamic cache miss search)
+        let mut target_item_id = None;
+        let target_name;
+        let mut is_negative_cached = false;
+        {
             let target_cache = &state.caches[target_index];
-            let mut t_item_id = None;
-            if !imdb_id.is_empty() { t_item_id = target_cache.imdb_to_id.get(&imdb_id).cloned(); }
-            if t_item_id.is_none() && !tmdb_id.is_empty() { t_item_id = target_cache.tmdb_to_id.get(&tmdb_id).cloned(); }
-            (t_item_id, target_cache.name.clone())
-        };
+            if !imdb_id.is_empty() { target_item_id = target_cache.imdb_to_id.get(&imdb_id).cloned(); }
+            if target_item_id.is_none() && !tmdb_id.is_empty() { target_item_id = target_cache.tmdb_to_id.get(&tmdb_id).cloned(); }
+            target_name = target_cache.name.clone();
+            if let Some(ref id) = target_item_id {
+                if id == "[ NOT_FOUND ]" {
+                    is_negative_cached = true;
+                    target_item_id = None;
+                }
+            }
+        }
+
+        if target_item_id.is_none() && !is_negative_cached {
+            drop(state);
+            let mut resolved = None;
+            if let Some(ref t_uid) = target_user_id {
+                info!("Cache miss on target '{}' for (IMDb: {}, TMDb: {}). Searching target library...", target_name, imdb_id, tmdb_id);
+                if let Ok(res) = client_target.find_item_by_provider(t_uid, &imdb_id, &tmdb_id).await {
+                    resolved = res;
+                }
+            }
+            state = state_lock.lock().await;
+            if let Some((id, _imdb, _tmdb)) = resolved {
+                state.caches[target_index].id_to_providers.insert(id.clone(), (imdb_id.clone(), tmdb_id.clone()));
+                if !imdb_id.is_empty() { state.caches[target_index].imdb_to_id.insert(imdb_id.clone(), id.clone()); }
+                if !tmdb_id.is_empty() { state.caches[target_index].tmdb_to_id.insert(tmdb_id.clone(), id.clone()); }
+                target_item_id = Some(id);
+            } else {
+                if !imdb_id.is_empty() { state.caches[target_index].imdb_to_id.insert(imdb_id.clone(), "[ NOT_FOUND ]".to_string()); }
+                if !tmdb_id.is_empty() { state.caches[target_index].tmdb_to_id.insert(tmdb_id.clone(), "[ NOT_FOUND ]".to_string()); }
+            }
+        }
 
         if let (Some(t_item_id), Some(t_user_id)) = (target_item_id, target_user_id) {
             let now = Instant::now();
             let history_key = (user_lower.clone(), if !imdb_id.is_empty() { imdb_id.clone() } else { tmdb_id.clone() });
+            
+            // 3. Threshold check: rate-limit updates and break infinite sync loop feedback
+            if let Some(last_sync) = state.last_syncs.get(&history_key) {
+                let tick_diff = (last_sync.position_ticks - position).abs();
+                let time_diff = last_sync.timestamp.elapsed();
+                
+                if tick_diff < (config.sync_threshold_seconds * 10_000_000) as i64 
+                    && time_diff < Duration::from_secs(config.sync_threshold_seconds)
+                    && !played 
+                {
+                    continue; // Skip redundant updates
+                }
+            }
+
             state.last_syncs.insert(history_key.clone(), SyncHistoryValue { position_ticks: position, timestamp: now });
 
             let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
             let pos_secs = position as f64 / 10_000_000.0;
             let message = if played {
-                format!("Synced watch state (watched) for {} to '{}'", user_name, source_item_id)
+                format!("Synced watch state (watched) for {} to '{}'", user_name, t_item_id)
             } else {
                 format!("Synced progress for {} to {:.1}s", user_name, pos_secs)
             };
