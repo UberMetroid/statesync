@@ -50,14 +50,7 @@ impl AppState {
     }
 
     pub fn log_event(&mut self, level: &str, msg: &str) {
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let hours = (secs / 3600) % 24;
-        let mins = (secs / 60) % 60;
-        let w_secs = secs % 60;
-        let timestamp = format!("{:02}:{:02}:{:02}", hours, mins, w_secs);
+        let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
 
         self.sync_logs.insert(0, SyncLogEntry {
             timestamp,

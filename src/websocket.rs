@@ -167,14 +167,7 @@ pub async fn handle_websocket_loop(
                                                                     timestamp: now,
                                                                 });
 
-                                                                let secs = std::time::SystemTime::now()
-                                                                    .duration_since(std::time::UNIX_EPOCH)
-                                                                    .unwrap_or_default()
-                                                                    .as_secs();
-                                                                let hours = (secs / 3600) % 24;
-                                                                let mins = (secs / 60) % 60;
-                                                                let w_secs = secs % 60;
-                                                                let timestamp = format!("{:02}:{:02}:{:02}", hours, mins, w_secs);
+                                                                let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
 
                                                                 let message = format!(
                                                                     "Synced '{}' for {} to {:.1}s{}",
