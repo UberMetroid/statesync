@@ -14,16 +14,9 @@ use tracing_subscriber;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct DeviceConfig {
-    pub id: String,
-    pub name: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub emby_url: String,
     pub api_key: String,
-    pub sync_devices: Vec<DeviceConfig>,
     #[serde(default = "default_threshold_seconds")]
     pub sync_threshold_seconds: u64,
     #[serde(default = "default_cooldown_seconds")]
@@ -313,7 +306,6 @@ impl EmbyClient {
 
 #[derive(Debug, Clone)]
 pub struct CollectivePlayState {
-    pub item_id: String,
     pub position_ticks: i64,
     pub is_paused: bool,
     pub last_updated: Instant,
@@ -328,29 +320,27 @@ pub struct SessionHistoryEntry {
 }
 
 #[derive(Debug, Clone)]
-pub struct ActiveRoomState {
-    pub device_id: String,
-    pub device_name: String,
-    pub session_id: String,
-    pub playing_item_id: String,
+pub struct WatchParty {
+    pub item_id: String,
+    pub item_name: String,
     pub playlist_id: String,
+    pub members: std::collections::HashSet<String>, // session IDs
+    pub collective_state: CollectivePlayState,
 }
 
 pub struct AppState {
-    pub collective_state: Option<CollectivePlayState>,
     pub session_history: HashMap<String, SessionHistoryEntry>,
     pub cooldowns: HashMap<String, Instant>,
-    pub active_playlists: HashMap<String, ActiveRoomState>,
+    pub active_parties: HashMap<String, WatchParty>,
     pub user_id: String,
 }
 
 impl AppState {
     pub fn new(user_id: String) -> Self {
         Self {
-            collective_state: None,
             session_history: HashMap::new(),
             cooldowns: HashMap::new(),
-            active_playlists: HashMap::new(),
+            active_parties: HashMap::new(),
             user_id,
         }
     }
@@ -379,6 +369,7 @@ enum SyncAction {
     Pause,
     Unpause,
     Seek { position_ticks: i64 },
+    #[allow(dead_code)]
     Stop,
 }
 
@@ -453,124 +444,111 @@ async fn run_sync_logic(
     let mut state = state_lock.lock().await;
     state.clean_cooldowns();
 
-    let device_ids: Vec<&str> = config.sync_devices.iter().map(|d| d.id.as_str()).collect();
-    let active_sync_sessions: Vec<&SessionInfo> = sessions
-        .iter()
-        .filter(|s| device_ids.contains(&s.device_id.as_str()))
-        .collect();
+    let now = Instant::now();
+    let threshold_ticks = (config.sync_threshold_seconds * 10_000_000) as i64;
 
-    if active_sync_sessions.is_empty() {
-        return Ok(());
-    }
-
-    // 1. Intercept any TV trying to play one of our active Watch Party Playlists
-    for s in &active_sync_sessions {
+    // 1. Intercept joins: Check if any session played one of our active watch-party playlists
+    for s in sessions {
         if state.is_in_cooldown(&s.id) {
             continue;
         }
 
         if let Some(ref item) = s.now_playing_item {
-            let mut match_room = None;
-            for active_pl in state.active_playlists.values() {
-                if item.id == active_pl.playlist_id {
-                    match_room = Some(active_pl.clone());
+            let mut match_item_id = None;
+            for party in state.active_parties.values() {
+                if item.id == party.playlist_id {
+                    match_item_id = Some(party.item_id.clone());
                     break;
                 }
             }
 
-            if let Some(target_pl) = match_room {
+            if let Some(target_item_id) = match_item_id {
                 info!(
-                    "Device '{}' played sync playlist for room '{}' -> Requesting to join!",
+                    "Session '{}' played sync playlist for '{}' -> Joining watch party!",
                     s.device_name.as_deref().unwrap_or(&s.device_id),
-                    target_pl.device_name
+                    s.now_playing_item.as_ref().and_then(|i| i.name.as_deref()).unwrap_or("Movie")
                 );
 
-                // Find the active session for the target device
-                if let Some(target_session) = active_sync_sessions.iter().find(|ts| ts.device_id == target_pl.device_id) {
-                    if let Some(ref target_item) = target_session.now_playing_item {
-                        let target_pos = target_session.play_state.as_ref().and_then(|p| p.position_ticks).unwrap_or(0);
-                        let target_paused = target_session.play_state.as_ref().and_then(|p| p.is_paused).unwrap_or(false);
-
-                        info!(
-                            "Redirecting device '{}' to join room '{}' playing item '{}' at position {}",
-                            s.device_name.as_deref().unwrap_or(&s.device_id),
-                            target_pl.device_name,
-                            target_item.id,
-                            target_pos
-                        );
-
-                        let client_clone = client.clone();
-                        let session_id = s.id.clone();
-                        let item_id = target_item.id.clone();
-                        let cooldown_dur = Duration::from_secs(config.cooldown_seconds);
-
-                        state.set_cooldown(&session_id, cooldown_dur);
-
-                        tokio::spawn(async move {
-                            let act = SyncAction::Play {
-                                item_id,
-                                position_ticks: target_pos,
-                                is_paused: target_paused,
-                            };
-                            if let Err(e) = execute_sync_action(&client_clone, &session_id, act).await {
-                                error!("Error redirecting session {}: {}", session_id, e);
-                            }
-                        });
-
-                        return Ok(());
-                    }
+                // Add this session to the watch party members
+                if let Some(party) = state.active_parties.get_mut(&target_item_id) {
+                    party.members.insert(s.id.clone());
                 }
 
-                // If target room is not playing anything, let's stop this TV
-                info!(
-                    "Target room '{}' is not playing anything or not active. Stopping playback.",
-                    target_pl.device_name
-                );
+                // Find another session in this watch party to sync to
+                let other_member = sessions.iter().find(|os| {
+                    os.id != s.id 
+                    && os.now_playing_item.as_ref().map(|ti| ti.id == target_item_id).unwrap_or(false)
+                });
+
+                let (target_pos, target_paused) = if let Some(os) = other_member {
+                    let pos = os.play_state.as_ref().and_then(|p| p.position_ticks).unwrap_or(0);
+                    let paused = os.play_state.as_ref().and_then(|p| p.is_paused).unwrap_or(false);
+                    (pos, paused)
+                } else {
+                    (0, false)
+                };
+
                 let client_clone = client.clone();
                 let session_id = s.id.clone();
-                state.set_cooldown(&session_id, Duration::from_secs(config.cooldown_seconds));
+                let cooldown_dur = Duration::from_secs(config.cooldown_seconds);
+
+                state.set_cooldown(&session_id, cooldown_dur);
+
                 tokio::spawn(async move {
-                    let _ = execute_sync_action(&client_clone, &session_id, SyncAction::Stop).await;
+                    let act = SyncAction::Play {
+                        item_id: target_item_id,
+                        position_ticks: target_pos,
+                        is_paused: target_paused,
+                    };
+                    if let Err(e) = execute_sync_action(&client_clone, &session_id, act).await {
+                        error!("Error redirecting session {}: {}", session_id, e);
+                    }
                 });
+
                 return Ok(());
             }
         }
     }
 
     // 2. Manage Dynamic Watch-Party Playlists (Create/Delete)
-    let mut playlists_to_create = Vec::new();
-    for s in &active_sync_sessions {
+    let mut parties_to_create = Vec::new();
+    for s in sessions {
         if let Some(ref item) = s.now_playing_item {
             let item_name = item.name.as_deref().unwrap_or("");
-            // Check that this is a real movie/show, not one of our own playlists
             if !item_name.starts_with("Join ") {
-                if !state.active_playlists.contains_key(&s.device_id) {
-                    playlists_to_create.push((
-                        s.device_id.clone(),
-                        s.device_name.as_deref().unwrap_or(&s.device_id).to_string(),
-                        s.id.clone(),
+                if !state.active_parties.contains_key(&item.id) {
+                    parties_to_create.push((
                         item.id.clone(),
-                        item.name.as_deref().unwrap_or("Movie").to_string(),
+                        item_name.to_string(),
+                        s.id.clone(), // Host session ID
                     ));
                 }
             }
         }
     }
 
-    let mut playlists_to_delete = Vec::new();
-    for (dev_id, active_pl) in &state.active_playlists {
-        let is_still_playing_same = active_sync_sessions.iter().any(|s| {
-            s.device_id == *dev_id && s.now_playing_item.as_ref().map(|item| item.id == active_pl.playing_item_id).unwrap_or(false)
+    // Clean up members who stopped playing their party item
+    for party in state.active_parties.values_mut() {
+        party.members.retain(|member_session_id| {
+            sessions.iter().any(|s| {
+                s.id == *member_session_id 
+                && s.now_playing_item.as_ref().map(|item| item.id == party.item_id).unwrap_or(false)
+            })
         });
-        if !is_still_playing_same {
-            playlists_to_delete.push((dev_id.clone(), active_pl.playlist_id.clone()));
+    }
+
+    // Find playlists to delete (parties with no active members)
+    let mut parties_to_delete = Vec::new();
+    for (item_id, party) in &state.active_parties {
+        if party.members.is_empty() {
+            parties_to_delete.push((item_id.clone(), party.playlist_id.clone()));
         }
     }
 
-    // Drop lock to perform network requests asynchronously
+    // Drop lock to perform asynchronous network requests
     drop(state);
 
-    for (dev_id, playlist_id) in playlists_to_delete {
+    for (item_id, playlist_id) in parties_to_delete {
         let client_clone = client.clone();
         let state_lock_clone = state_lock.clone();
         tokio::spawn(async move {
@@ -579,12 +557,12 @@ async fn run_sync_logic(
                 error!("Error deleting playlist: {}", e);
             }
             let mut state = state_lock_clone.lock().await;
-            state.active_playlists.remove(&dev_id);
+            state.active_parties.remove(&item_id);
         });
     }
 
-    for (dev_id, dev_name, session_id, item_id, item_name) in playlists_to_create {
-        let pl_name = format!("Join {} - {}", dev_name, item_name);
+    for (item_id, item_name, host_session_id) in parties_to_create {
+        let pl_name = format!("Join - {}", item_name);
         let client_clone = client.clone();
         let user_id = {
             let state = state_lock.lock().await;
@@ -596,16 +574,22 @@ async fn run_sync_logic(
             info!("Creating watch-party playlist: {}", pl_name);
             match client_clone.create_playlist(&user_id, &pl_name, &item_id).await {
                 Ok(playlist_id) => {
-                    info!("Successfully created playlist ID {} for {}", playlist_id, dev_id);
+                    info!("Successfully created playlist ID {} for item {}", playlist_id, item_id);
                     let mut state = state_lock_clone.lock().await;
-                    state.active_playlists.insert(
-                        dev_id.clone(),
-                        ActiveRoomState {
-                            device_id: dev_id,
-                            device_name: dev_name,
-                            session_id,
-                            playing_item_id: item_id,
+                    let mut members = std::collections::HashSet::new();
+                    members.insert(host_session_id);
+                    state.active_parties.insert(
+                        item_id.clone(),
+                        WatchParty {
+                            item_id,
+                            item_name,
                             playlist_id,
+                            members,
+                            collective_state: CollectivePlayState {
+                                position_ticks: 0,
+                                is_paused: false,
+                                last_updated: Instant::now(),
+                            },
                         },
                     );
                 }
@@ -616,199 +600,153 @@ async fn run_sync_logic(
         });
     }
 
-    // Re-acquire lock to run normal sync calculations
+    // Re-acquire lock to do syncing calculations
     let mut state = state_lock.lock().await;
-    let now = Instant::now();
-    let threshold_ticks = (config.sync_threshold_seconds * 10_000_000) as i64;
 
-    // Detect user interactions (Play/Pause/Seek)
-    let mut detected_interaction = None;
+    // 3. For each active Watch Party, calculate sync actions among members
+    // Clone the watch parties to avoid borrowing issues while iterating and modifying app state
+    let parties: Vec<WatchParty> = state.active_parties.values().cloned().collect();
 
-    for s in &active_sync_sessions {
-        if state.is_in_cooldown(&s.id) {
-            state.session_history.insert(
-                s.device_id.clone(),
-                SessionHistoryEntry {
-                    item_id: s.now_playing_item.as_ref().map(|item| item.id.clone()),
-                    position_ticks: s.play_state.as_ref().and_then(|p| p.position_ticks).unwrap_or(0),
-                    is_paused: s.play_state.as_ref().and_then(|p| p.is_paused).unwrap_or(false),
-                    last_updated: now,
-                },
-            );
-            continue;
-        }
+    for party in parties {
+        let mut detected_interaction = None;
 
-        if let Some(prev) = state.session_history.get(&s.device_id) {
-            let curr_item = s.now_playing_item.as_ref().map(|item| item.id.clone());
-            let curr_pos = s.play_state.as_ref().and_then(|p| p.position_ticks).unwrap_or(0);
-            let curr_paused = s.play_state.as_ref().and_then(|p| p.is_paused).unwrap_or(false);
-
-            let mut interacted = false;
-            let mut reason = String::new();
-
-            // Ignore when changing to/from dummy playlists
-            let curr_item_name = s.now_playing_item.as_ref().and_then(|item| item.name.as_deref()).unwrap_or("");
-            let prev_item_name = prev.item_id.as_ref().and_then(|id| {
-                // Find if the previous item name was a playlist
-                state.active_playlists.values().find(|pl| pl.playing_item_id == *id).map(|pl| pl.device_name.as_str())
-            }).unwrap_or("");
-
-            if !curr_item_name.starts_with("Join ") && !prev_item_name.starts_with("Join ") {
-                if curr_item != prev.item_id {
-                    interacted = true;
-                    reason = format!(
-                        "media item changed from {:?} to {:?}",
-                        prev.item_id, curr_item
-                    );
-                } else if curr_paused != prev.is_paused {
-                    interacted = true;
-                    reason = format!(
-                        "paused state changed from {} to {}",
-                        prev.is_paused, curr_paused
-                    );
-                } else if curr_item.is_some() {
-                    let elapsed_ticks = if prev.is_paused {
-                        0
-                    } else {
-                        (now - prev.last_updated).as_nanos() as i64 / 100
-                    };
-                    let expected_pos = prev.position_ticks + elapsed_ticks;
-                    let diff = (curr_pos - expected_pos).abs();
-                    if diff > threshold_ticks {
-                        interacted = true;
-                        reason = format!(
-                            "position seek detected: prev_pos={}, expected={}, current={}, diff_secs={:.2}",
-                            prev.position_ticks, expected_pos, curr_pos, diff as f64 / 10_000_000.0
-                        );
-                    }
-                }
+        // Check if any member (not in cooldown) had a user interaction (play/pause/seek)
+        for s in sessions {
+            if !party.members.contains(&s.id) {
+                continue;
             }
-
-            if interacted {
-                info!(
-                    "User interaction detected on device '{}' ({}): {}",
-                    s.device_name.as_deref().unwrap_or(&s.device_id),
-                    s.client.as_deref().unwrap_or("Unknown Client"),
-                    reason
-                );
-                detected_interaction = Some((s.id.clone(), s.device_id.clone(), curr_item, curr_pos, curr_paused));
-                break;
-            }
-        }
-    }
-
-    if let Some((init_session_id, _init_device_id, item_id, position, is_paused)) = detected_interaction {
-        let new_collective = item_id.clone().map(|id| CollectivePlayState {
-            item_id: id,
-            position_ticks: position,
-            is_paused,
-            last_updated: now,
-        });
-
-        state.collective_state = new_collective;
-
-        for s in &active_sync_sessions {
-            if s.id == init_session_id {
+            if state.is_in_cooldown(&s.id) {
+                // Update history
                 state.session_history.insert(
-                    s.device_id.clone(),
+                    s.id.clone(),
                     SessionHistoryEntry {
                         item_id: s.now_playing_item.as_ref().map(|item| item.id.clone()),
-                        position_ticks: position,
-                        is_paused,
+                        position_ticks: s.play_state.as_ref().and_then(|p| p.position_ticks).unwrap_or(0),
+                        is_paused: s.play_state.as_ref().and_then(|p| p.is_paused).unwrap_or(false),
                         last_updated: now,
                     },
                 );
                 continue;
             }
 
-            let s_item = s.now_playing_item.as_ref().map(|item| item.id.clone());
-            let s_paused = s.play_state.as_ref().and_then(|p| p.is_paused).unwrap_or(false);
-            let s_pos = s.play_state.as_ref().and_then(|p| p.position_ticks).unwrap_or(0);
+            if let Some(prev) = state.session_history.get(&s.id) {
+                let curr_item = s.now_playing_item.as_ref().map(|item| item.id.clone());
+                let curr_pos = s.play_state.as_ref().and_then(|p| p.position_ticks).unwrap_or(0);
+                let curr_paused = s.play_state.as_ref().and_then(|p| p.is_paused).unwrap_or(false);
 
-            let action = match item_id.as_ref() {
-                None => {
-                    if s_item.is_some() {
-                        Some(SyncAction::Stop)
+                let mut interacted = false;
+                let mut reason = String::new();
+
+                if curr_item.as_ref() == Some(&party.item_id) {
+                    if curr_paused != prev.is_paused {
+                        interacted = true;
+                        reason = format!(
+                            "paused state changed from {} to {}",
+                            prev.is_paused, curr_paused
+                        );
                     } else {
-                        None
-                    }
-                }
-                Some(id) => {
-                    if s_item.as_ref() != Some(id) {
-                        Some(SyncAction::Play {
-                            item_id: id.clone(),
-                            position_ticks: position,
-                            is_paused,
-                        })
-                    } else {
-                        if s_paused != is_paused {
-                            if is_paused {
-                                Some(SyncAction::Pause)
-                            } else {
-                                Some(SyncAction::Unpause)
-                            }
-                        } else if (s_pos - position).abs() > threshold_ticks {
-                            Some(SyncAction::Seek { position_ticks: position })
+                        let elapsed_ticks = if prev.is_paused {
+                            0
                         } else {
-                            None
+                            (now - prev.last_updated).as_nanos() as i64 / 100
+                        };
+                        let expected_pos = prev.position_ticks + elapsed_ticks;
+                        let diff = (curr_pos - expected_pos).abs();
+                        if diff > threshold_ticks {
+                            interacted = true;
+                            reason = format!(
+                                "position seek detected: prev_pos={}, expected={}, current={}, diff_secs={:.2}",
+                                prev.position_ticks, expected_pos, curr_pos, diff as f64 / 10_000_000.0
+                            );
                         }
                     }
                 }
-            };
 
-            if let Some(act) = action {
-                info!(
-                    "Syncing device '{}' to match initiator state: {:?}",
-                    s.device_name.as_deref().unwrap_or(&s.device_id),
-                    act
-                );
-                
-                let client_clone = client.clone();
-                let session_id = s.id.clone();
-                let cooldown_dur = Duration::from_secs(config.cooldown_seconds);
-
-                state.set_cooldown(&session_id, cooldown_dur);
-
-                tokio::spawn(async move {
-                    if let Err(e) = execute_sync_action(&client_clone, &session_id, act).await {
-                        error!("Error executing sync action on session {}: {}", session_id, e);
-                    }
-                });
-            }
-        }
-    } else {
-        if state.collective_state.is_none() {
-            if let Some(playing_session) = active_sync_sessions.iter().find(|s| s.now_playing_item.is_some()) {
-                let item = playing_session.now_playing_item.as_ref().unwrap();
-                let play_state = playing_session.play_state.as_ref();
-                let position = play_state.and_then(|p| p.position_ticks).unwrap_or(0);
-                let is_paused = play_state.and_then(|p| p.is_paused).unwrap_or(false);
-
-                // Ignore dummy items
-                if !item.name.as_deref().unwrap_or("").starts_with("Join ") {
+                if interacted {
                     info!(
-                        "Initializing collective state from active playing session on '{}' (item: {})",
-                        playing_session.device_name.as_deref().unwrap_or(&playing_session.device_id),
-                        item.id
+                        "User interaction detected on watch-party member '{}' ({}): {}",
+                        s.device_name.as_deref().unwrap_or(&s.device_id),
+                        s.client.as_deref().unwrap_or("Unknown Client"),
+                        reason
                     );
-
-                    state.collective_state = Some(CollectivePlayState {
-                        item_id: item.id.clone(),
-                        position_ticks: position,
-                        is_paused,
-                        last_updated: now,
-                    });
+                    detected_interaction = Some((s.id.clone(), curr_pos, curr_paused));
+                    break;
                 }
             }
         }
 
-        if let Some(coll) = state.collective_state.clone() {
-            for s in &active_sync_sessions {
-                if state.is_in_cooldown(&s.id) {
+        if let Some((init_session_id, position, is_paused)) = detected_interaction {
+            let new_collective = CollectivePlayState {
+                position_ticks: position,
+                is_paused,
+                last_updated: now,
+            };
+
+            // Write back updated collective state to state
+            if let Some(p) = state.active_parties.get_mut(&party.item_id) {
+                p.collective_state = new_collective;
+            }
+
+            for s in sessions {
+                if !party.members.contains(&s.id) || s.id == init_session_id {
+                    // Update history for initiator
+                    if s.id == init_session_id {
+                        state.session_history.insert(
+                            s.id.clone(),
+                            SessionHistoryEntry {
+                                item_id: s.now_playing_item.as_ref().map(|item| item.id.clone()),
+                                position_ticks: position,
+                                is_paused,
+                                last_updated: now,
+                            },
+                        );
+                    }
                     continue;
                 }
 
-                let s_item = s.now_playing_item.as_ref().map(|item| item.id.clone());
+                let s_paused = s.play_state.as_ref().and_then(|p| p.is_paused).unwrap_or(false);
+                let s_pos = s.play_state.as_ref().and_then(|p| p.position_ticks).unwrap_or(0);
+
+                let action = if s_paused != is_paused {
+                    if is_paused {
+                        Some(SyncAction::Pause)
+                    } else {
+                        Some(SyncAction::Unpause)
+                    }
+                } else if (s_pos - position).abs() > threshold_ticks {
+                    Some(SyncAction::Seek { position_ticks: position })
+                } else {
+                    None
+                };
+
+                if let Some(act) = action {
+                    info!(
+                        "Syncing watch-party member '{}' to match initiator state: {:?}",
+                        s.device_name.as_deref().unwrap_or(&s.device_id),
+                        act
+                    );
+
+                    let client_clone = client.clone();
+                    let session_id = s.id.clone();
+                    let cooldown_dur = Duration::from_secs(config.cooldown_seconds);
+
+                    state.set_cooldown(&session_id, cooldown_dur);
+
+                    tokio::spawn(async move {
+                        if let Err(e) = execute_sync_action(&client_clone, &session_id, act).await {
+                            error!("Error executing sync action on session {}: {}", session_id, e);
+                        }
+                    });
+                }
+            }
+        } else {
+            // No interaction. Check if any member is out of sync with the party's collective state.
+            let coll = party.collective_state.clone();
+            for s in sessions {
+                if !party.members.contains(&s.id) || state.is_in_cooldown(&s.id) {
+                    continue;
+                }
+
                 let s_pos = s.play_state.as_ref().and_then(|p| p.position_ticks).unwrap_or(0);
                 let s_paused = s.play_state.as_ref().and_then(|p| p.is_paused).unwrap_or(false);
 
@@ -818,13 +756,7 @@ async fn run_sync_logic(
                     (now - coll.last_updated).as_nanos() as i64 / 100
                 };
 
-                let action = if s_item.as_ref() != Some(&coll.item_id) {
-                    Some(SyncAction::Play {
-                        item_id: coll.item_id.clone(),
-                        position_ticks: expected_ticks,
-                        is_paused: coll.is_paused,
-                    })
-                } else if s_paused != coll.is_paused {
+                let action = if s_paused != coll.is_paused {
                     if coll.is_paused {
                         Some(SyncAction::Pause)
                     } else {
@@ -838,11 +770,11 @@ async fn run_sync_logic(
 
                 if let Some(act) = action {
                     info!(
-                        "Device '{}' is out of sync. Executing correction: {:?}",
+                        "Watch-party member '{}' is out of sync. Executing correction: {:?}",
                         s.device_name.as_deref().unwrap_or(&s.device_id),
                         act
                     );
-                    
+
                     let client_clone = client.clone();
                     let session_id = s.id.clone();
                     let cooldown_dur = Duration::from_secs(config.cooldown_seconds);
@@ -859,9 +791,10 @@ async fn run_sync_logic(
         }
     }
 
-    for s in &active_sync_sessions {
+    // Update history entries for all active sessions
+    for s in sessions {
         state.session_history.insert(
-            s.device_id.clone(),
+            s.id.clone(),
             SessionHistoryEntry {
                 item_id: s.now_playing_item.as_ref().map(|item| item.id.clone()),
                 position_ticks: s.play_state.as_ref().and_then(|p| p.position_ticks).unwrap_or(0),
@@ -907,14 +840,11 @@ async fn main() -> Result<()> {
     let config: Config = serde_json::from_str(&config_data)
         .context("Failed to parse configuration file")?;
 
-    info!("Configuration loaded. Syncing {} devices.", config.sync_devices.len());
-    for dev in &config.sync_devices {
-        info!("  - {} (ID: {})", dev.name, dev.id);
-    }
+    info!("Configuration loaded. Connecting to Emby: {}", config.emby_url);
 
     let client = Arc::new(EmbyClient::new(config.emby_url.clone(), config.api_key.clone()));
 
-    // Attempt to log active sessions at startup to help the user identify their devices
+    // Attempt to log active sessions at startup
     match client.get_sessions().await {
         Ok(sessions) => {
             info!("Successfully connected to Emby server. Active sessions found:");
@@ -1006,7 +936,7 @@ async fn main() -> Result<()> {
     info!("Cleaning up active watch-party playlists before exit...");
     let active_playlists_to_clean: Vec<String> = {
         let state = app_state.lock().await;
-        state.active_playlists.values().map(|pl| pl.playlist_id.clone()).collect()
+        state.active_parties.values().map(|pl| pl.playlist_id.clone()).collect()
     };
     for pl_id in active_playlists_to_clean {
         let _ = client.delete_playlist(&pl_id).await;
