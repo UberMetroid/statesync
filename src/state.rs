@@ -34,7 +34,7 @@ pub struct AppState {
     pub last_syncs: HashMap<(String, String), SyncHistoryValue>,
     pub websocket_statuses: Vec<String>,
     pub sync_logs: Vec<SyncLogEntry>,
-    pub active_sessions: HashMap<(String, String), (String, String, f64, bool)>,
+    pub active_sessions: HashMap<(String, String), (String, String, f64, bool, String)>,
 }
 
 impl AppState {

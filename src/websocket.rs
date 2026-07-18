@@ -109,7 +109,7 @@ pub async fn handle_websocket_loop(
                                                     let pos_secs = position as f64 / 10_000_000.0;
                                                     state.active_sessions.insert(
                                                         (source_name.clone(), s.id.clone()),
-                                                        (user_name.clone(), item.name.clone().unwrap_or_default(), pos_secs, is_paused)
+                                                        (user_name.clone(), item.name.clone().unwrap_or_default(), pos_secs, is_paused, item.id.clone())
                                                     );
 
                                                     let source_item_providers = {

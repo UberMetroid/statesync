@@ -37,7 +37,7 @@
     .btn-danger { border-color: var(--red); color: var(--red); }
     .btn-danger:hover { background: var(--red); color: #000; box-shadow: 0 0 10px var(--red); }
     .badge { border: 1px solid rgba(0,240,255,0.4); padding: 2px 6px; font-size: 11px; color: var(--border); }
-    .log-feed { font-size: 12px; background: rgba(5,8,18,0.9); border: 1px solid rgba(0,240,255,0.2); padding: 15px; max-height: 450px; overflow-y: auto; color: var(--green); }
+    .log-feed { font-size: 12px; background: rgba(5,8,18,0.9); border: 1px solid rgba(0,240,255,0.2); padding: 15px; max-height: 220px; overflow-y: auto; color: var(--green); }
     .log-line { border-bottom: 1px solid rgba(0,255,102,0.05); padding: 4px 0; }
     .modal { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 2000; }
     .modal-content { background: var(--bg); border: 2px solid var(--border); box-shadow: 0 0 30px var(--border); width: 450px; padding: 25px; position: relative; }
@@ -143,7 +143,8 @@
           activeDiv.innerHTML = '';
           status.active_sessions.forEach(sess => {
             const mins = Math.floor(sess.position / 60); const secs = Math.floor(sess.position % 60).toString().padStart(2, '0');
-            activeDiv.innerHTML += `<div class="server-row" style="border-color:var(--accent)"><div class="server-info"><div><div style="font-weight:600;color:#fff">${sess.item}</div><div style="font-size:11px;color:var(--text)">USER: ${sess.user} | SOURCE: ${sess.server}</div></div></div><div style="display:flex;align-items:center;gap:10px"><span class="badge" style="border-color:var(--accent);color:var(--accent)">${mins}:${secs}</span><span style="font-size:11px;color:${sess.is_paused ? 'var(--accent)' : 'var(--green)'}">[ ${sess.is_paused ? 'PAUSED' : 'PLAYING'} ]</span></div></div>`;
+            const posterHtml = sess.poster_url ? `<img src="${sess.poster_url}" style="width:30px;height:45px;object-fit:cover;border:1px solid var(--accent);margin-right:12px;flex-shrink:0;">` : '';
+            activeDiv.innerHTML += `<div class="server-row" style="border-color:var(--accent);${sess.poster_url ? 'padding:6px 18px;' : ''}"><div class="server-info">${posterHtml}<div><div style="font-weight:600;color:#fff">${sess.item}</div><div style="font-size:11px;color:var(--text)">USER: ${sess.user} | SOURCE: ${sess.server}</div></div></div><div style="display:flex;align-items:center;gap:10px"><span class="badge" style="border-color:var(--accent);color:var(--accent)">${mins}:${secs}</span><span style="font-size:11px;color:${sess.is_paused ? 'var(--accent)' : 'var(--green)'}">[ ${sess.is_paused ? 'PAUSED' : 'PLAYING'} ]</span></div></div>`;
           });
         } else { activeDiv.innerHTML = '<div style="color:var(--accent)">NO ACTIVE STREAMS DETECTED</div>'; }
         const usersDiv = $('syncedUsers');

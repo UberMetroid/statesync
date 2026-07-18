@@ -180,14 +180,19 @@ async fn get_status(Extension(state): Extension<Arc<WebServerState>>) -> Json<se
         }
     }
     
+    let config = Config::load().unwrap_or_else(|_| Config { servers: Vec::new(), sync_threshold_seconds: 5 });
     let mut active_sessions = Vec::new();
-    for ((server, _), (user, item, position, is_paused)) in &app_state.active_sessions {
+    for ((server, _), (user, item, position, is_paused, item_id)) in &app_state.active_sessions {
+        let poster_url = config.servers.iter()
+            .find(|s| s.name == *server)
+            .map(|s| format!("{}/Items/{}/Images/Primary?api_key={}", s.url.trim_end_matches('/'), item_id, s.api_key));
         active_sessions.push(json!({
             "server": server,
             "user": user,
             "item": item,
             "position": position,
-            "is_paused": is_paused
+            "is_paused": is_paused,
+            "poster_url": poster_url
         }));
     }
     
