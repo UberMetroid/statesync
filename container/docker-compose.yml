@@ -2,12 +2,14 @@ version: '3.8'
 
 services:
   statesync:
-    build: .
+    build:
+      context: ..
+      dockerfile: container/Dockerfile
     container_name: statesync
     restart: unless-stopped
     ports:
       - "8754:8754"
     volumes:
-      - ./config:/config
+      - ../config:/config
     environment:
       - RUST_LOG=info
