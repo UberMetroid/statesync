@@ -1,4 +1,4 @@
-# Emby-Jellyfin Playstate Sync Sidecar
+# statesync
 
 A lightweight, high-performance Rust daemon designed to synchronize playback progress, watch states, and resume points bi-directionally between an Emby Media Server and a Jellyfin Media Server in real-time.
 
@@ -15,9 +15,22 @@ A lightweight, high-performance Rust daemon designed to synchronize playback pro
 
 ## Configuration
 
-The sidecar is configured via a `config.json` file in its current working directory.
+`statesync` can be configured using either **Environment Variables** or a **`config.json`** file.
 
-### Example `config.json`
+### Option A: Environment Variables (Recommended for Containers)
+
+Set the following environment variables when running the service:
+
+- `STATESYNC_EMBY_URL`: The URL of your Emby Media Server.
+- `STATESYNC_EMBY_API_KEY`: A valid Emby API key.
+- `STATESYNC_JELLYFIN_URL`: The URL of your Jellyfin Media Server.
+- `STATESYNC_JELLYFIN_API_KEY`: A valid Jellyfin API key.
+- `STATESYNC_SYNC_THRESHOLD_SECONDS`: Optional. Sync threshold in seconds. Default: `5`.
+- `RUST_LOG`: Logging verbosity level (`info`, `warn`, `error`, `debug`).
+
+### Option B: `config.json` File
+
+Create a file named `config.json` at either `/etc/statesync/config.json`, `/app/config.json`, or in the daemon's working directory:
 
 ```json
 {
@@ -33,25 +46,53 @@ The sidecar is configured via a `config.json` file in its current working direct
 }
 ```
 
-### Configuration Fields
+---
 
-- `emby.url`: The URL of your Emby Media Server.
-- `emby.api_key`: A valid Emby API key.
-- `jellyfin.url`: The URL of your Jellyfin Media Server.
-- `jellyfin.api_key`: A valid Jellyfin API key.
-- `sync_threshold_seconds`: The maximum difference (in seconds) allowed between client positions before a seek command is triggered. Default: `5`.
+## Container Deployment
+
+We package `statesync` as a lightweight container using **RedHat UBI-minimal (`ubi9/ubi-minimal`)** as the secure base runtime image.
+
+### 1. Run with Docker Compose (Recommended)
+
+1. Create a `docker-compose.yml` file:
+   ```yaml
+   version: '3.8'
+   services:
+     statesync:
+       build: .
+       container_name: statesync
+       restart: unless-stopped
+       environment:
+         - STATESYNC_EMBY_URL=http://192.168.3.3:8096
+         - STATESYNC_EMBY_API_KEY=YOUR_EMBY_API_KEY
+         - STATESYNC_JELLYFIN_URL=http://192.168.3.10:8096
+         - STATESYNC_JELLYFIN_API_KEY=YOUR_JELLYFIN_API_KEY
+         - STATESYNC_SYNC_THRESHOLD_SECONDS=5
+         - RUST_LOG=info
+   ```
+2. Build and start the container:
+   ```bash
+   docker compose up -d --build
+   ```
+
+### 2. Run with Docker Volume Mounts (Using `config.json`)
+
+If you prefer using a configuration file instead of environment variables:
+
+```bash
+docker run -d \
+  --name statesync \
+  -v /path/to/config.json:/etc/statesync/config.json:ro \
+  -e RUST_LOG=info \
+  statesync:latest
+```
 
 ---
 
-## How to Run
+## Local Development (Without Containers)
 
-1. **Configure Endpoints**: Open `config.json` and fill in your Emby and Jellyfin server URLs and API keys.
-2. **Run the Daemon**:
+1. Install Cargo and Rust.
+2. Build and run locally:
    ```bash
    RUST_LOG=info cargo run
-   ```
-   Or build a release version:
-   ```bash
-   cargo build --release
-   ./target/release/emby-syncplay
    ```

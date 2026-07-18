@@ -19,12 +19,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     info!("Starting Emby-Jellyfin Playstate Sync Sidecar...");
 
-    let config_path = "config.json";
-    let config_data = std::fs::read_to_string(config_path)
-        .with_context(|| format!("Failed to read configuration file: {}", config_path))?;
-    
-    let config: Config = serde_json::from_str(&config_data)
-        .context("Failed to parse configuration file")?;
+    let config = Config::load()?;
 
     info!("Connecting to Emby: {}", config.emby.url);
     let emby_client = Arc::new(MediaClient::new(config.emby.url.clone(), config.emby.api_key.clone(), true));
