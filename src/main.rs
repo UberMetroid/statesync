@@ -209,7 +209,7 @@ fn make_ws_url(url: &str, api_key: &str, is_emby: bool) -> String {
     };
     
     let path = if is_emby { "/embywebsocket" } else { "/socket" };
-    format!("{}{}?api_key={}&deviceId=emby-jellyfin-bridge", ws_base, path, api_key)
+    format!("{}{}?api_key={}&deviceId=statesync", ws_base, path, api_key)
 }
 
 async fn init_server_cache(client: &MediaClient) -> Result<ServerCache> {
