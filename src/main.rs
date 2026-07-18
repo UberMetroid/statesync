@@ -129,10 +129,12 @@ async fn main() -> Result<()> {
                 }
             }
 
+            let source_client = clients[i].clone();
             tokio::spawn(async move {
                 handle_websocket_loop(
                     i,
                     &ws_url,
+                    source_client,
                     target_clients,
                     state_clone,
                     config_clone,

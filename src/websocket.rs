@@ -20,6 +20,7 @@ pub fn make_ws_url(url: &str, api_key: &str, is_emby: bool) -> String {
 pub async fn handle_websocket_loop(
     source_index: usize,
     ws_url: &str,
+    source_client: Arc<MediaClient>,
     target_clients: Vec<(usize, Arc<MediaClient>)>,
     state_lock: Arc<Mutex<AppState>>,
     config: Config,
@@ -98,10 +99,29 @@ pub async fn handle_websocket_loop(
                                 if ws_msg.message_type == "Sessions" {
                                     if let Some(ref data) = ws_msg.data {
                                         if let Ok(sessions) = serde_json::from_value::<Vec<SessionInfo>>(data.clone()) {
+                                            let mut missing_users = Vec::new();
+                                            {
+                                                let state = state_lock.lock().await;
+                                                for s in &sessions {
+                                                    if let Some(user_name) = &s.user_name {
+                                                        let user_lower = user_name.to_lowercase();
+                                                        if source_index < state.caches.len() && !state.caches[source_index].users.contains_key(&user_lower) {
+                                                            missing_users.push(user_name.clone());
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if !missing_users.is_empty() {
+                                                info!("Detected new users {:?} on '{}'. Hot-reloading user list...", missing_users, source_name);
+                                                if let Ok(new_users) = source_client.get_users().await {
+                                                    let mut state = state_lock.lock().await;
+                                                    if source_index < state.caches.len() {
+                                                        state.caches[source_index].users = new_users;
+                                                    }
+                                                }
+                                            }
                                             let mut state = state_lock.lock().await;
                                             let now = Instant::now();
-                                            
-                                            // Clear old active sessions for this source server
                                             state.active_sessions.retain(|(srv, _), _| srv != &source_name);
 
                                             for s in &sessions {
@@ -152,7 +172,7 @@ pub async fn handle_websocket_loop(
                                                             if config.servers[target_index].sync_direction == "send" {
                                                                 continue;
                                                             }
-                                                            let (target_item_id, target_user_id, target_name) = {
+                                                            let (target_item_id, mut target_user_id, target_name) = {
                                                                 let target_cache = &state.caches[target_index];
                                                                 let mut t_item_id = None;
                                                                 if !imdb_id.is_empty() {
@@ -165,6 +185,18 @@ pub async fn handle_websocket_loop(
                                                                 let t_name = target_cache.name.clone();
                                                                 (t_item_id, t_user_id, t_name)
                                                             };
+
+                                                            if target_user_id.is_none() {
+                                                                drop(state);
+                                                                if let Ok(new_users) = client_target.get_users().await {
+                                                                    let mut state_write = state_lock.lock().await;
+                                                                    if target_index < state_write.caches.len() {
+                                                                        state_write.caches[target_index].users = new_users;
+                                                                    }
+                                                                }
+                                                                state = state_lock.lock().await;
+                                                                target_user_id = crate::state::find_mapped_user_id(&user_lower, &state.caches[target_index].users);
+                                                            }
 
                                                             if let (Some(t_item_id), Some(t_user_id)) = (target_item_id, target_user_id) {
                                                                 state.last_syncs.insert(history_key.clone(), SyncHistoryValue {
