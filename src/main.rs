@@ -109,6 +109,20 @@ impl EmbyClient {
         format!("{}{}?api_key={}", self.base_url, path, self.api_key)
     }
 
+    pub async fn get_sessions(&self) -> Result<Vec<SessionInfo>> {
+        let url = self.auth_url("/emby/Sessions");
+        let resp = self.client.get(&url)
+            .header("X-Emby-Token", &self.api_key)
+            .send()
+            .await
+            .context("Failed to send get_sessions request")?;
+        
+        let sessions = resp.json::<Vec<SessionInfo>>()
+            .await
+            .context("Failed to parse get_sessions response")?;
+        Ok(sessions)
+    }
+
     pub async fn play(&self, session_id: &str, item_id: &str, position_ticks: i64) -> Result<()> {
         let path = format!("/emby/Sessions/{}/Playing", session_id);
         let url = format!(
@@ -617,6 +631,26 @@ async fn main() -> Result<()> {
     }
 
     let client = Arc::new(EmbyClient::new(config.emby_url.clone(), config.api_key.clone()));
+
+    // Attempt to log active sessions at startup to help the user identify their devices
+    match client.get_sessions().await {
+        Ok(sessions) => {
+            info!("Successfully connected to Emby server. Active sessions found:");
+            for s in &sessions {
+                info!(
+                    "  - Device: '{}', Client: '{}', User: '{}', DeviceId: '{}'",
+                    s.device_name.as_deref().unwrap_or("Unknown Device"),
+                    s.client.as_deref().unwrap_or("Unknown Client"),
+                    s.user_name.as_deref().unwrap_or("None"),
+                    s.device_id
+                );
+            }
+        }
+        Err(e) => {
+            warn!("Could not fetch initial sessions from Emby (is the server up?): {}", e);
+        }
+    }
+
     let app_state = Arc::new(Mutex::new(AppState::new()));
     let ws_url = make_ws_url(&config.emby_url, &config.api_key);
 
