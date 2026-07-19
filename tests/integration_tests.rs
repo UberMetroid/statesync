@@ -24,6 +24,7 @@ fn make_test_config() -> Config {
         }],
         sync_threshold_seconds: 5,
         user_mappings: vec![],
+        last_full_sync: None,
     }
 }
 

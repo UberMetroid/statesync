@@ -348,6 +348,7 @@ mod tests {
             servers,
             sync_threshold_seconds: 5,
             user_mappings,
+            last_full_sync: None,
         }
     }
 

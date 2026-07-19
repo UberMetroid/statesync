@@ -64,6 +64,14 @@ impl AppState {
     pub fn new(caches: Vec<ServerCache>) -> Self {
         let count = caches.len();
         let retention = default_log_retention();
+        let tracker = SyncForceTracker::default();
+        if let Ok(config) = crate::config::Config::load() {
+            if let Some(fs) = config.last_full_sync {
+                if let Ok(mut status) = tracker.status.try_lock() {
+                    *status = fs;
+                }
+            }
+        }
         Self {
             caches,
             last_syncs: HashMap::new(),
@@ -71,7 +79,7 @@ impl AppState {
             sync_logs: Vec::new(),
             active_sessions: HashMap::new(),
             log_retention: retention,
-            sync_force: Arc::new(SyncForceTracker::default()),
+            sync_force: Arc::new(tracker),
         }
     }
 

@@ -37,6 +37,8 @@ pub struct Config {
     pub sync_threshold_seconds: u64,
     #[serde(default)]
     pub user_mappings: Vec<Vec<String>>,
+    #[serde(default)]
+    pub last_full_sync: Option<crate::sync_force::ForceSyncStatus>,
 }
 
 fn default_threshold_seconds() -> u64 {
@@ -152,6 +154,22 @@ pub fn redacted_url(url: &str) -> String {
 }
 
 impl Config {
+    pub fn save(&self) -> Result<()> {
+        let path = get_config_path();
+        let serialized = serde_json::to_string_pretty(self)?;
+        let tmp = format!("{}.tmp", path);
+        {
+            use std::io::Write;
+            let mut f = std::fs::File::create(&tmp)
+                .with_context(|| format!("Failed to create temporary config file at {}", tmp))?;
+            f.write_all(serialized.as_bytes())?;
+            f.sync_all()?;
+        }
+        std::fs::rename(&tmp, path)
+            .with_context(|| format!("Failed to install config at {}", path))?;
+        Ok(())
+    }
+
     pub fn load() -> Result<Self> {
         let mut servers = Vec::new();
 
@@ -271,6 +289,7 @@ impl Config {
             servers,
             sync_threshold_seconds: threshold,
             user_mappings: Vec::new(),
+            last_full_sync: None,
         })
     }
 }
@@ -294,6 +313,7 @@ pub fn default_config() -> Config {
         servers: Vec::new(),
         sync_threshold_seconds: default_threshold_seconds(),
         user_mappings: Vec::new(),
+        last_full_sync: None,
     }
 }
 

@@ -152,7 +152,13 @@ pub async fn run_force_sync(ctx: ForceContext) -> ForceSyncStatus {
     }
 
     let mut status = ctx.tracker.status.lock().await;
-    *status = result;
+    *status = result.clone();
+    if let Ok(mut config) = crate::config::Config::load() {
+        config.last_full_sync = Some(result.clone());
+        if let Err(e) = config.save() {
+            tracing::error!("run_force_sync: failed to save force sync status to config: {}", e);
+        }
+    }
     status.clone()
 }
 

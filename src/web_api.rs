@@ -65,11 +65,7 @@ pub fn mask_api_key(key: &str) -> String {
 }
 
 pub async fn get_config() -> Json<Config> {
-    let mut config = Config::load().unwrap_or(Config {
-        servers: vec![],
-        sync_threshold_seconds: 5,
-        user_mappings: vec![],
-    });
+    let mut config = Config::load().unwrap_or_else(|_| crate::config::default_config());
     for s in &mut config.servers {
         s.api_key = mask_api_key(&s.api_key);
     }
@@ -81,6 +77,7 @@ pub async fn post_config(
     Json(mut new_config): Json<Config>,
 ) -> Json<serde_json::Value> {
     if let Ok(old_config) = Config::load() {
+        new_config.last_full_sync = old_config.last_full_sync.clone();
         for s in &mut new_config.servers {
             if s.api_key.contains('•') || s.api_key.trim().is_empty() {
                 if let Some(old_s) = old_config
@@ -98,33 +95,13 @@ pub async fn post_config(
         return Json(json!({ "status": "error", "message": "Invalid configuration" }));
     }
 
-    let path = crate::config::get_config_path();
-    let serialized = match serde_json::to_string_pretty(&new_config) {
-        Ok(s) => s,
-        Err(_) => {
-            return Json(
-                json!({ "status": "error", "message": "Failed to serialize configuration" }),
-            );
-        }
-    };
-    if let Err(e) = atomic_write(path, serialized.as_bytes()) {
-        tracing::error!("post_config: atomic write failed: {}", e);
+    if let Err(e) = new_config.save() {
+        tracing::error!("post_config: failed to save configuration: {}", e);
         return Json(json!({ "status": "error", "message": "Failed to write configuration file" }));
     }
 
     let _ = state.reload_tx.send(()).await;
     Json(json!({ "status": "ok", "message": "Configuration saved. Sync service is reloading..." }))
-}
-
-fn atomic_write(path: &str, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let tmp = format!("{}.tmp", path);
-    {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-    }
-    std::fs::rename(&tmp, path)
 }
 
 pub async fn test_connection(Json(req): Json<TestConnRequest>) -> Json<serde_json::Value> {
@@ -241,11 +218,7 @@ pub async fn get_status(
     Extension(state): Extension<Arc<WebServerState>>,
 ) -> Json<serde_json::Value> {
     let app_state = state.app_state.lock().await;
-    let config = Config::load().unwrap_or_else(|_| Config {
-        servers: vec![],
-        sync_threshold_seconds: 5,
-        user_mappings: vec![],
-    });
+    let config = Config::load().unwrap_or_else(|_| crate::config::default_config());
     let redacted_url_for = |name: &str| -> String {
         config
             .servers
