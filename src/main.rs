@@ -242,7 +242,7 @@ async fn init_clients_parallel(
     app_state: &Arc<Mutex<AppState>>,
 ) -> Result<(Vec<Arc<MediaClient>>, Vec<statesync::state::ServerCache>)> {
     let mut init_futures = Vec::new();
-    for s in &config.servers {
+    for (i, s) in config.servers.iter().enumerate() {
         let name = s.name.clone();
         let url = s.url.clone();
         let api_key = s.api_key.clone();
@@ -251,6 +251,9 @@ async fn init_clients_parallel(
         init_futures.push(tokio::spawn(async move {
             {
                 let mut state = app_state.lock().await;
+                if i < state.websocket_statuses.len() {
+                    state.websocket_statuses[i] = "Validating".to_string();
+                }
                 state.log_event(
                     "info",
                     &format!("Connecting to server '{}' ({})", name, redacted_url(&url)),
@@ -263,6 +266,12 @@ async fn init_clients_parallel(
             info!("Connecting to server '{}' ({})", name, redacted_url(&url));
             info!("Initializing metadata cache for '{}'...", name);
             let client = Arc::new(MediaClient::new(url.clone(), api_key.clone(), is_emby));
+            {
+                let mut state = app_state.lock().await;
+                if i < state.websocket_statuses.len() {
+                    state.websocket_statuses[i] = "Scanning".to_string();
+                }
+            }
             match init_server_cache(&name, &client).await {
                 Ok(cache) => {
                     info!(
@@ -595,8 +604,10 @@ fn draw_tui_from_json(status: &serde_json::Value) {
                 let users_count = s.get("users_count").and_then(|v| v.as_u64()).unwrap_or(0);
                 let media_count = s.get("media_count").and_then(|v| v.as_u64()).unwrap_or(0);
 
-                let status_color = if ws_status == "Connected" {
+                let status_color = if ws_status == "Connected" || ws_status == "Synchronizing" {
                     "\x1B[32m"
+                } else if ws_status == "Scanning" || ws_status == "Validating" || ws_status == "Connecting" {
+                    "\x1B[33m"
                 } else {
                     "\x1B[31m"
                 };

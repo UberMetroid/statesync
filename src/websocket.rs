@@ -122,7 +122,7 @@ pub async fn handle_websocket_loop(
                     "success",
                     &format!("'{}' WebSocket connected.", source_name),
                 );
-                state.websocket_statuses[source_index] = "Connected".to_string();
+                state.websocket_statuses[source_index] = "Synchronizing".to_string();
                 drop(state);
                 backoff_attempt = 0;
 

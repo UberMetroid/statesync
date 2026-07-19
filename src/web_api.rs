@@ -38,7 +38,7 @@ pub async fn cache_stats(app_state: &Arc<tokio::sync::Mutex<AppState>>) -> Cache
     let connected_count = state
         .websocket_statuses
         .iter()
-        .filter(|s| s.as_str() == "Connected")
+        .filter(|s| s.as_str() == "Connected" || s.as_str() == "Synchronizing")
         .count();
     let ever_connected_count = state
         .websocket_statuses

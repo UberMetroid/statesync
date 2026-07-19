@@ -62,7 +62,11 @@ async function loadDashboard() {
 
         const right = document.createElement('div'); right.className = 'server-info';
         const metaSpan = document.createElement('span'); metaSpan.style.fontSize = '12px';
-        metaSpan.textContent = sStatus.users_count + ' USERS';
+        if (sStatus.websocket_status === 'Scanning' || sStatus.websocket_status === 'Validating' || sStatus.websocket_status === 'Connecting') {
+          metaSpan.textContent = sStatus.websocket_status.toUpperCase() + '...';
+        } else {
+          metaSpan.textContent = sStatus.users_count + ' USERS';
+        }
         const editBtn = document.createElement('button'); editBtn.className = 'btn'; editBtn.textContent = '[ EDIT ]';
         editBtn.addEventListener('click', () => openServerModal(idx));
         const wipeBtn = document.createElement('button'); wipeBtn.className = 'btn btn-danger'; wipeBtn.textContent = '[ WIPE ]';
@@ -125,17 +129,6 @@ async function loadDashboard() {
       usersDiv.appendChild(empty);
     } else {
       usersDiv.textContent = '';
-      const header = document.createElement('div');
-      header.style.cssText = 'display:flex;justify-content:space-between;color:var(--border);font-weight:600;font-size:12px;border-bottom:1px solid rgba(0,240,255,0.3);padding-bottom:6px;margin-bottom:12px';
-      status.servers.forEach((srv, idx) => {
-        const title = document.createElement('div'); title.textContent = srv.name.toUpperCase(); title.style.width = '120px';
-        title.style.textAlign = idx === 0 ? 'left' : (idx === status.servers.length - 1 ? 'right' : 'center');
-        header.appendChild(title);
-        if (idx < status.servers.length - 1) {
-          const placeholder = document.createElement('div'); placeholder.style.flex = '1'; header.appendChild(placeholder);
-        }
-      });
-      usersDiv.appendChild(header);
       const serverCount = status.servers.length;
       const headerRow = document.createElement('div');
       headerRow.style.cssText = 'display:grid;grid-template-columns:repeat(' + serverCount + ', 1fr);gap:6px;margin-bottom:6px';
