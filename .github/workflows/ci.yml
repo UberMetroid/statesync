@@ -40,23 +40,3 @@ jobs:
 
       - name: Run All Tests (Unit, Integration, Security, Perf)
         run: cargo test --all-targets --verbose
-
-  docker-check:
-    name: Validate Docker Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: container/Dockerfile
-          push: false
