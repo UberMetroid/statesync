@@ -36,6 +36,9 @@ fn make_web_state(
         reload_tx,
         bind_addr: "127.0.0.1:0".to_string(),
         web_auth: None,
+        version: "test".to_string(),
+        started_at: "2025-01-01T00:00:00Z".to_string(),
+        started_instant: Instant::now(),
     })
 }
 
@@ -104,6 +107,9 @@ async fn test_api_protected_with_bearer_auth() {
         reload_tx,
         bind_addr: "0.0.0.0:8754".to_string(),
         web_auth: Some("bearer:secret123".to_string()),
+        version: "test".to_string(),
+        started_at: "2025-01-01T00:00:00Z".to_string(),
+        started_instant: std::time::Instant::now(),
     });
     let app = create_router(web_state);
 

@@ -31,6 +31,19 @@ pub fn make_ws_url(url: &str, api_key: &str, is_emby: bool) -> String {
     )
 }
 
+fn next_backoff(attempt: u32) -> Duration {
+    let base_ms = 1_000u64;
+    let cap_ms = 60_000u64;
+    let exp = base_ms.saturating_mul(2u64.saturating_pow(attempt.min(10)));
+    let capped = exp.min(cap_ms);
+    let jitter = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64)
+        .unwrap_or(0))
+        % (capped / 4 + 1);
+    Duration::from_millis(capped + jitter)
+}
+
 pub async fn handle_websocket_loop(
     source_index: usize,
     ws_url: &str,
@@ -40,6 +53,7 @@ pub async fn handle_websocket_loop(
     config: Config,
     mut shutdown_rx: broadcast::Receiver<()>,
 ) {
+    let mut backoff_attempt: u32 = 0;
     loop {
         let source_name = {
             let state = state_lock.lock().await;
@@ -49,7 +63,6 @@ pub async fn handle_websocket_loop(
             state.caches[source_index].name.clone()
         };
 
-        // Self-Healing Cache Initialization for offline servers
         let cache_uninitialized = {
             let state = state_lock.lock().await;
             source_index < state.caches.len() && state.caches[source_index].users.is_empty()
@@ -88,6 +101,9 @@ pub async fn handle_websocket_loop(
             }
         }
 
+        if source_index >= state_lock.lock().await.websocket_statuses.len() {
+            return;
+        }
         state_lock.lock().await.websocket_statuses[source_index] = "Reconnecting".to_string();
 
         let conn_result = tokio::select! {
@@ -108,6 +124,7 @@ pub async fn handle_websocket_loop(
                 );
                 state.websocket_statuses[source_index] = "Connected".to_string();
                 drop(state);
+                backoff_attempt = 0;
 
                 let start_msg =
                     json!({ "MessageType": "SessionsStart", "Data": "0,1000" }).to_string();
@@ -139,6 +156,7 @@ pub async fn handle_websocket_loop(
                                 warn!("Failed to send ping to '{}': {}", source_name, e);
                                 break;
                             }
+                            last_activity = Instant::now();
                             continue;
                         }
                         msg = ws_stream.next() => msg,
@@ -205,8 +223,10 @@ pub async fn handle_websocket_loop(
                                                     &s.now_playing_item,
                                                     &s.play_state,
                                                 ) {
-                                                    let position =
-                                                        play_state.position_ticks.unwrap_or(0);
+                                                    let Some(position) = play_state.position_ticks
+                                                    else {
+                                                        continue;
+                                                    };
                                                     let is_paused =
                                                         play_state.is_paused.unwrap_or(false);
                                                     let pos_secs = position as f64 / 10_000_000.0;
@@ -281,31 +301,36 @@ pub async fn handle_websocket_loop(
 
                                                     let user_name_clone = user_name.clone();
                                                     let item_id_clone = entry.item_id.clone();
-                                                    let pos =
-                                                        entry.playback_position_ticks.unwrap_or(0);
-                                                    let played = entry.played;
-                                                    let source_name_clone = source_name.clone();
-                                                    let state_lock_clone = state_lock.clone();
-                                                    let target_clients_clone =
-                                                        target_clients.clone();
-                                                    let config_clone = config.clone();
-                                                    let source_client_clone = source_client.clone();
-
-                                                    tokio::spawn(async move {
-                                                        crate::sync::sync_progress_to_targets(
-                                                            &user_name_clone,
-                                                            &item_id_clone,
-                                                            pos,
-                                                            played,
-                                                            &source_name_clone,
+                                                    let Some(pos) = entry.playback_position_ticks
+                                                    else {
+                                                        if !entry.played {
+                                                            continue;
+                                                        }
+                                                        return spawn_userdata_sync(
+                                                            user_name_clone,
+                                                            item_id_clone,
+                                                            0,
+                                                            entry.played,
+                                                            source_name.clone(),
                                                             source_index,
-                                                            &state_lock_clone,
-                                                            &target_clients_clone,
-                                                            &config_clone,
-                                                            &source_client_clone,
-                                                        )
-                                                        .await;
-                                                    });
+                                                            state_lock.clone(),
+                                                            target_clients.clone(),
+                                                            config.clone(),
+                                                            source_client.clone(),
+                                                        );
+                                                    };
+                                                    spawn_userdata_sync(
+                                                        user_name_clone,
+                                                        item_id_clone,
+                                                        pos,
+                                                        entry.played,
+                                                        source_name.clone(),
+                                                        source_index,
+                                                        state_lock.clone(),
+                                                        target_clients.clone(),
+                                                        config.clone(),
+                                                        source_client.clone(),
+                                                    );
                                                 }
                                             }
                                         }
@@ -314,10 +339,18 @@ pub async fn handle_websocket_loop(
                             }
                         }
                         Ok(WsMessageProto::Ping(payload)) => {
+                            last_activity = Instant::now();
                             if let Err(e) = ws_stream.send(WsMessageProto::Pong(payload)).await {
                                 warn!("Failed to send pong to '{}': {}", source_name, e);
                                 break;
                             }
+                        }
+                        Ok(WsMessageProto::Pong(_)) => {
+                            last_activity = Instant::now();
+                        }
+                        Ok(WsMessageProto::Close(_)) => {
+                            warn!("'{}' sent close frame. Reconnecting...", source_name);
+                            break;
                         }
                         Ok(_) => {}
                         Err(e) => {
@@ -333,10 +366,7 @@ pub async fn handle_websocket_loop(
                 );
             }
             Err(e) => {
-                error!(
-                    "Failed to connect to '{}' WebSocket: {}. Retrying in 5 seconds...",
-                    source_name, e
-                );
+                error!("Failed to connect to '{}' WebSocket: {}.", source_name, e);
                 state_lock.lock().await.log_event(
                     "error",
                     &format!("Failed to connect to '{}' WebSocket: {}", source_name, e),
@@ -344,12 +374,44 @@ pub async fn handle_websocket_loop(
             }
         }
 
+        let backoff = next_backoff(backoff_attempt);
+        backoff_attempt = backoff_attempt.saturating_add(1);
         tokio::select! {
             _ = shutdown_rx.recv() => {
                 state_lock.lock().await.websocket_statuses[source_index] = "Offline".to_string();
                 return;
             }
-            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+            _ = tokio::time::sleep(backoff) => {}
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_userdata_sync(
+    user_name_clone: String,
+    item_id_clone: String,
+    pos: i64,
+    played: bool,
+    source_name_clone: String,
+    source_index: usize,
+    state_lock_clone: Arc<Mutex<AppState>>,
+    target_clients_clone: Vec<(usize, Arc<MediaClient>)>,
+    config_clone: Config,
+    source_client_clone: Arc<MediaClient>,
+) {
+    tokio::spawn(async move {
+        crate::sync::sync_progress_to_targets(
+            &user_name_clone,
+            &item_id_clone,
+            pos,
+            played,
+            &source_name_clone,
+            source_index,
+            &state_lock_clone,
+            &target_clients_clone,
+            &config_clone,
+            &source_client_clone,
+        )
+        .await;
+    });
 }

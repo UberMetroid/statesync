@@ -2,6 +2,7 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
 const $ = id => document.getElementById(id);
 let currentConfig = { servers: [], sync_threshold_seconds: 5 }; let editIndex = -1;
 const AUTH_TOKEN_KEY = 'statesync-auth-token';
+function esc(s) { if (s == null) return ''; return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
 function getAuthHeaders() {
   const t = localStorage.getItem(AUTH_TOKEN_KEY);
   return t ? { 'Authorization': 'Bearer ' + t } : {};
@@ -50,37 +51,88 @@ async function loadDashboard() {
       }
     }
     const listDiv = $('serverList');
-    if (currentConfig.servers.length === 0) { listDiv.innerHTML = '<div style="color: var(--accent)">NO CONFIGURED TRANSCEIVERS</div>'; } else {
-      listDiv.innerHTML = '';
+    if (currentConfig.servers.length === 0) {
+      listDiv.textContent = '';
+      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO CONFIGURED TRANSCEIVERS';
+      listDiv.appendChild(empty);
+    } else {
+      listDiv.textContent = '';
       currentConfig.servers.forEach((srv, idx) => {
         const sStatus = status.servers.find(s => s.name === srv.name) || { users_count: 0, media_count: 0, websocket_status: 'Offline' };
         const row = document.createElement('div'); row.className = 'server-row';
         const dirBadge = srv.sync_direction === 'send' ? ' [SEND ONLY]' : (srv.sync_direction === 'receive' ? ' [RCV ONLY]' : '');
         const urlText = (status.servers.find(s => s.name === srv.name) || {}).url || srv.url;
-        row.innerHTML = `<div class="server-info"><span class="status-${sStatus.websocket_status}">[ ${sStatus.websocket_status.toUpperCase()} ]</span><div><span style="font-weight:600;color:#fff">${srv.name}</span> <span class="badge">${srv.is_emby ? 'EMBY' : 'JELLYFIN'}${dirBadge}</span><div style="font-size:11px;color:var(--text);margin-top:2px">${urlText}</div></div></div><div class="server-info"><span style="font-size:12px">${sStatus.users_count} USERS | ${sStatus.media_count} CACHED</span><button class="btn" onclick="openServerModal(${idx})">[ EDIT ]</button><button class="btn btn-danger" onclick="deleteServer(${idx})">[ WIPE ]</button></div>`;
+
+        const left = document.createElement('div'); left.className = 'server-info';
+        const statusSpanEl = document.createElement('span'); statusSpanEl.className = 'status-' + sStatus.websocket_status;
+        statusSpanEl.textContent = '[ ' + sStatus.websocket_status.toUpperCase() + ' ]';
+        const leftInner = document.createElement('div');
+        const nameEl = document.createElement('span'); nameEl.style.cssText = 'font-weight:600;color:#fff'; nameEl.textContent = srv.name;
+        const badgeEl = document.createElement('span'); badgeEl.className = 'badge'; badgeEl.textContent = (srv.is_emby ? 'EMBY' : 'JELLYFIN') + dirBadge;
+        const urlEl = document.createElement('div'); urlEl.style.cssText = 'font-size:11px;color:var(--text);margin-top:2px'; urlEl.textContent = urlText;
+        leftInner.appendChild(nameEl); leftInner.appendChild(document.createTextNode(' ')); leftInner.appendChild(badgeEl); leftInner.appendChild(urlEl);
+        left.appendChild(statusSpanEl); left.appendChild(leftInner);
+
+        const right = document.createElement('div'); right.className = 'server-info';
+        const metaSpan = document.createElement('span'); metaSpan.style.fontSize = '12px';
+        metaSpan.textContent = sStatus.users_count + ' USERS | ' + sStatus.media_count + ' CACHED';
+        const editBtn = document.createElement('button'); editBtn.className = 'btn'; editBtn.textContent = '[ EDIT ]';
+        editBtn.addEventListener('click', () => openServerModal(idx));
+        const wipeBtn = document.createElement('button'); wipeBtn.className = 'btn btn-danger'; wipeBtn.textContent = '[ WIPE ]';
+        wipeBtn.addEventListener('click', () => deleteServer(idx));
+        right.appendChild(metaSpan); right.appendChild(editBtn); right.appendChild(wipeBtn);
+
+        row.appendChild(left); row.appendChild(right);
         listDiv.appendChild(row);
       });
     }
     const activeDiv = $('activeSessions');
     if (status.active_sessions && status.active_sessions.length > 0) {
-      activeDiv.innerHTML = '';
+      activeDiv.textContent = '';
       status.active_sessions.forEach(sess => {
         const mins = Math.floor(sess.position / 60); const secs = Math.floor(sess.position % 60).toString().padStart(2, '0');
-        const posterHtml = sess.poster_url ? `<img src="${sess.poster_url}" style="width:30px;height:45px;object-fit:cover;border:1px solid var(--accent);margin-right:12px;flex-shrink:0;">` : '';
-        activeDiv.innerHTML += `<div class="server-row" style="border-color:var(--accent);${sess.poster_url ? 'padding:6px 18px;' : ''}"><div class="server-info">${posterHtml}<div><div style="font-weight:600;color:#fff">${sess.item}</div><div style="font-size:11px;color:var(--text)">USER: ${sess.user} | SOURCE: ${sess.server}</div></div></div><div style="display:flex;align-items:center;gap:10px"><span class="badge" style="border-color:var(--accent);color:var(--accent)">${mins}:${secs}</span>${sess.is_paused ? '<span style="font-size:11px;color:var(--accent)">[ PAUSED ]</span>' : ''}</div></div>`;
+        const row = document.createElement('div'); row.className = 'server-row';
+        if (sess.poster_url) { row.style.borderColor = 'var(--accent)'; row.style.padding = '6px 18px'; }
+        const left = document.createElement('div'); left.className = 'server-info';
+        if (sess.poster_url) {
+          const img = document.createElement('img');
+          img.src = sess.poster_url;
+          img.alt = '';
+          img.style.cssText = 'width:30px;height:45px;object-fit:cover;border:1px solid var(--accent);margin-right:12px;flex-shrink:0;';
+          left.appendChild(img);
+        }
+        const meta = document.createElement('div');
+        const itemEl = document.createElement('div'); itemEl.style.cssText = 'font-weight:600;color:#fff'; itemEl.textContent = sess.item;
+        const userEl = document.createElement('div'); userEl.style.cssText = 'font-size:11px;color:var(--text)'; userEl.textContent = 'USER: ' + sess.user + ' | SOURCE: ' + sess.server;
+        meta.appendChild(itemEl); meta.appendChild(userEl);
+        left.appendChild(meta);
+        const right = document.createElement('div'); right.style.cssText = 'display:flex;align-items:center;gap:10px';
+        const badge = document.createElement('span'); badge.className = 'badge'; badge.style.cssText = 'border-color:var(--accent);color:var(--accent)';
+        badge.textContent = mins + ':' + secs;
+        right.appendChild(badge);
+        if (sess.is_paused) {
+          const p = document.createElement('span'); p.style.cssText = 'font-size:11px;color:var(--accent)'; p.textContent = '[ PAUSED ]';
+          right.appendChild(p);
+        }
+        row.appendChild(left); row.appendChild(right);
+        activeDiv.appendChild(row);
       });
-    } else { activeDiv.innerHTML = '<div style="color:var(--accent)">NO ACTIVE STREAMS DETECTED</div>'; }
+    } else {
+      activeDiv.textContent = '';
+      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO ACTIVE STREAMS DETECTED';
+      activeDiv.appendChild(empty);
+    }
     const usersDiv = $('syncedUsers');
     if (!status.servers || status.servers.length === 0) {
-      usersDiv.innerHTML = '<div style="color:var(--accent)">NO ACTIVE TRANSCEIVERS</div>';
+      usersDiv.textContent = '';
+      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO ACTIVE TRANSCEIVERS';
+      usersDiv.appendChild(empty);
     } else {
-      usersDiv.innerHTML = '';
+      usersDiv.textContent = '';
       const header = document.createElement('div');
-      header.style.display = 'flex'; header.style.justifyContent = 'space-between';
-      header.style.color = 'var(--border)'; header.style.fontWeight = '600'; header.style.fontSize = '12px';
-      header.style.borderBottom = '1px solid rgba(0,240,255,0.3)'; header.style.paddingBottom = '6px'; header.style.marginBottom = '12px';
+      header.style.cssText = 'display:flex;justify-content:space-between;color:var(--border);font-weight:600;font-size:12px;border-bottom:1px solid rgba(0,240,255,0.3);padding-bottom:6px;margin-bottom:12px';
       status.servers.forEach((srv, idx) => {
-        const title = document.createElement('div'); title.innerText = srv.name.toUpperCase(); title.style.width = '120px';
+        const title = document.createElement('div'); title.textContent = srv.name.toUpperCase(); title.style.width = '120px';
         title.style.textAlign = idx === 0 ? 'left' : (idx === status.servers.length - 1 ? 'right' : 'center');
         header.appendChild(title);
         if (idx < status.servers.length - 1) {
@@ -95,16 +147,21 @@ async function loadDashboard() {
         return nameA.localeCompare(nameB, undefined, { sensitivity: 'base', numeric: true });
       });
       mapped.forEach(group => {
-        let cells = '';
+        const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;padding:6px 0';
         group.forEach((username, idx) => {
           const align = idx === 0 ? 'left' : (idx === group.length - 1 ? 'right' : 'center');
-          cells += username ? `<div style="color:#fff;font-size:12px;width:120px;text-align:${align}">${username}</div>` : `<div style="color:var(--text);opacity:0.3;font-size:12px;width:120px;text-align:${align}">[ UNMAPPED ]</div>`;
+          const cell = document.createElement('div');
+          cell.style.cssText = username ? 'color:#fff;font-size:12px;width:120px;text-align:' + align : 'color:var(--text);opacity:0.3;font-size:12px;width:120px;text-align:' + align;
+          cell.textContent = username || '[ UNMAPPED ]';
+          row.appendChild(cell);
           if (idx < group.length - 1) {
             const isGreen = username !== null && group.slice(idx + 1).some(u => u !== null);
-            cells += `<div style="flex:1;border-bottom:1px dotted ${isGreen ? 'var(--green)' : 'var(--accent)'};margin:0 15px;opacity:${isGreen ? '0.7' : '0.2'}"></div>`;
+            const sep = document.createElement('div');
+            sep.style.cssText = 'flex:1;border-bottom:1px dotted ' + (isGreen ? 'var(--green)' : 'var(--accent)') + ';margin:0 15px;opacity:' + (isGreen ? '0.7' : '0.2');
+            row.appendChild(sep);
           }
         });
-        usersDiv.innerHTML += `<div style="display:flex;align-items:center;padding:6px 0">${cells}</div>`;
+        usersDiv.appendChild(row);
       });
       const unmapped = [];
       status.servers.forEach((srv, srvIdx) => {
@@ -116,30 +173,57 @@ async function loadDashboard() {
       });
       unmapped.sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: 'base', numeric: true }));
       unmapped.forEach(({ username, srvIdx }) => {
-        let cells = '';
+        const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;padding:6px 0';
         for (let i = 0; i < status.servers.length; i++) {
           const align = i === 0 ? 'left' : (i === status.servers.length - 1 ? 'right' : 'center');
-          cells += `<div style="font-size:12px;width:120px;text-align:${align};color:${i === srvIdx ? 'var(--accent)' : 'var(--text);opacity:0.3'}">${i === srvIdx ? username : '[ UNMAPPED ]'}</div>`;
-          if (i < status.servers.length - 1) cells += `<div style="flex:1;border-bottom:1px dotted var(--accent);margin:0 15px;opacity:0.3"></div>`;
+          const cell = document.createElement('div');
+          cell.style.cssText = 'font-size:12px;width:120px;text-align:' + align + ';color:' + (i === srvIdx ? 'var(--accent)' : 'var(--text);opacity:0.3');
+          cell.textContent = i === srvIdx ? username : '[ UNMAPPED ]';
+          row.appendChild(cell);
+          if (i < status.servers.length - 1) {
+            const sep = document.createElement('div'); sep.style.cssText = 'flex:1;border-bottom:1px dotted var(--accent);margin:0 15px;opacity:0.3';
+            row.appendChild(sep);
+          }
         }
-        usersDiv.innerHTML += `<div style="display:flex;align-items:center;padding:6px 0">${cells}</div>`;
+        usersDiv.appendChild(row);
       });
     }
     const logsDiv = $('syncLogs');
     if (status.sync_logs && status.sync_logs.length > 0) {
-      logsDiv.innerHTML = '';
+      logsDiv.textContent = '';
       status.sync_logs.forEach(log => {
+        const line = document.createElement('div'); line.className = 'log-line';
+        const prefix = document.createTextNode('> [' + log.timestamp + '] ');
+        line.appendChild(prefix);
         if (log.level === 'success' && log.source_name) {
-          const sCol = log.source_is_emby ? 'var(--green)' : '#cc00ff'; const tCol = log.target_is_emby ? 'var(--green)' : '#cc00ff';
-          const sBadge = log.source_is_emby ? 'EMBY' : 'JELLYFIN'; const tBadge = log.target_is_emby ? 'EMBY' : 'JELLYFIN';
-          logsDiv.innerHTML += `<div class="log-line">&gt; [${log.timestamp}] ${log.message.toUpperCase()} FROM <span style="color:${sCol}">[${sBadge}: ${log.source_name.toUpperCase()}]</span> -&gt; <span style="color:${tCol}">[${tBadge}: ${log.target_name.toUpperCase()}]</span></div>`;
+          const sCol = log.source_is_emby ? 'var(--green)' : '#cc00ff';
+          const tCol = log.target_is_emby ? 'var(--green)' : '#cc00ff';
+          const sBadge = log.source_is_emby ? 'EMBY' : 'JELLYFIN';
+          const tBadge = log.target_is_emby ? 'EMBY' : 'JELLYFIN';
+          line.appendChild(document.createTextNode(log.message.toUpperCase() + ' FROM '));
+          const fromSpan = document.createElement('span'); fromSpan.style.color = sCol;
+          fromSpan.textContent = '[' + sBadge + ': ' + log.source_name.toUpperCase() + ']';
+          line.appendChild(fromSpan);
+          line.appendChild(document.createTextNode(' -> '));
+          const toSpan = document.createElement('span'); toSpan.style.color = tCol;
+          toSpan.textContent = '[' + tBadge + ': ' + log.target_name.toUpperCase() + ']';
+          line.appendChild(toSpan);
         } else {
           const color = log.level === 'error' ? 'var(--red)' : (log.level === 'warn' ? 'var(--accent)' : 'var(--text)');
-          logsDiv.innerHTML += `<div class="log-line">&gt; [${log.timestamp}] <span style="color:${color}">[${log.level.toUpperCase()}] ${log.message.toUpperCase()}</span></div>`;
+          const inner = document.createElement('span'); inner.style.color = color;
+          inner.textContent = '[' + log.level.toUpperCase() + '] ' + log.message.toUpperCase();
+          line.appendChild(inner);
         }
+        logsDiv.appendChild(line);
       });
       logsDiv.scrollTop = logsDiv.scrollHeight;
-    } else { logsDiv.innerHTML = '<div style="color:var(--green)">> LISTENING FOR METRIC EVENTS...</div>'; }
+    } else {
+      logsDiv.textContent = '';
+      const empty = document.createElement('div'); empty.style.color = 'var(--green)'; empty.textContent = '> LISTENING FOR METRIC EVENTS...';
+      logsDiv.appendChild(empty);
+    }
+    const footer = $('versionFooter');
+    if (footer && status.version) footer.textContent = 'v' + status.version + ' | uptime ' + Math.floor(status.uptime_seconds / 60) + 'm';
   } catch (err) { console.error(err); }
 }
 function openServerModal(idx) {
@@ -187,6 +271,7 @@ async function saveConfig() {
   } catch (err) { showToast('WRITE CONFIG FAILED'); }
 }
 function showToast(msg) { const toast = $('toast'); toast.innerText = `> ${msg}`; toast.style.display = 'block'; setTimeout(() => { toast.style.display = 'none'; }, 4000); }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { ['serverModal','settingsModal','authModal'].forEach(id => { const m=$(id); if (m && m.style.display === 'flex') m.style.display='none'; }); } });
 const savedTheme = localStorage.getItem('hud-theme') || 'cyberpunk'; setTheme(savedTheme); $('themeSelector').value = savedTheme;
 document.addEventListener('DOMContentLoaded', () => {
   const b = $('authSubmitBtn'); if (b) b.addEventListener('click', submitAuth);

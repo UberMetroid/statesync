@@ -6,13 +6,14 @@ use std::time::Instant;
 #[derive(Debug, Clone)]
 pub struct ServerCache {
     pub name: String,
-    pub users: HashMap<String, String>, // username (lowercase) -> UserId
-    pub imdb_to_id: HashMap<String, String>, // ImdbId -> ItemId
-    pub tmdb_to_id: HashMap<String, String>, // TmdbId -> ItemId
-    pub id_to_providers: HashMap<String, (String, String)>, // ItemId -> (ImdbId, TmdbId)
+    pub users: HashMap<String, String>,
+    pub imdb_to_id: HashMap<String, String>,
+    pub tmdb_to_id: HashMap<String, String>,
+    pub id_to_providers: HashMap<String, (String, String)>,
+    #[allow(dead_code)]
+    pub last_negative_cache: Option<Instant>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SyncHistoryValue {
     pub position_ticks: i64,
@@ -22,7 +23,7 @@ pub struct SyncHistoryValue {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SyncLogEntry {
     pub timestamp: String,
-    pub level: String, // "info", "warn", "error", "success"
+    pub level: String,
     pub message: String,
     pub source_name: Option<String>,
     pub source_is_emby: Option<bool>,
@@ -36,17 +37,28 @@ pub struct AppState {
     pub websocket_statuses: Vec<String>,
     pub sync_logs: Vec<SyncLogEntry>,
     pub active_sessions: HashMap<(String, String), (String, String, f64, bool, String)>,
+    pub log_retention: usize,
+}
+
+fn default_log_retention() -> usize {
+    std::env::var("STATESYNC_LOG_RETENTION")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(30)
+        .max(1)
 }
 
 impl AppState {
     pub fn new(caches: Vec<ServerCache>) -> Self {
         let count = caches.len();
+        let retention = default_log_retention();
         Self {
             caches,
             last_syncs: HashMap::new(),
             websocket_statuses: vec!["Offline".to_string(); count],
             sync_logs: Vec::new(),
             active_sessions: HashMap::new(),
+            log_retention: retention,
         }
     }
 
@@ -64,15 +76,15 @@ impl AppState {
                 target_is_emby: None,
             },
         );
-        if self.sync_logs.len() > 30 {
-            self.sync_logs.truncate(30);
+        if self.sync_logs.len() > self.log_retention {
+            self.sync_logs.truncate(self.log_retention);
         }
     }
 
     pub fn log_sync(&mut self, entry: SyncLogEntry) {
         self.sync_logs.insert(0, entry);
-        if self.sync_logs.len() > 30 {
-            self.sync_logs.truncate(30);
+        if self.sync_logs.len() > self.log_retention {
+            self.sync_logs.truncate(self.log_retention);
         }
     }
 }
@@ -81,30 +93,47 @@ pub async fn init_server_cache(name: &str, client: &MediaClient) -> Result<Serve
     let users = client.get_users().await?;
     let items = client.get_library_items().await?;
 
-    let mut imdb_to_id = HashMap::new();
-    let mut tmdb_to_id = HashMap::new();
+    let mut imdb_to_id: HashMap<String, Vec<String>> = HashMap::new();
+    let mut tmdb_to_id: HashMap<String, Vec<String>> = HashMap::new();
     let mut id_to_providers = HashMap::new();
 
     for (id, (imdb, tmdb)) in items {
         if !imdb.is_empty() {
-            imdb_to_id.insert(imdb.clone(), id.clone());
+            imdb_to_id.entry(imdb.clone()).or_default().push(id.clone());
         }
         if !tmdb.is_empty() {
-            tmdb_to_id.insert(tmdb.clone(), id.clone());
+            tmdb_to_id.entry(tmdb.clone()).or_default().push(id.clone());
         }
         id_to_providers.insert(id, (imdb, tmdb));
+    }
+
+    let mut imdb_flat = HashMap::new();
+    for (k, v) in imdb_to_id {
+        if let Some(first) = v.into_iter().next() {
+            imdb_flat.insert(k, first);
+        }
+    }
+    let mut tmdb_flat = HashMap::new();
+    for (k, v) in tmdb_to_id {
+        if let Some(first) = v.into_iter().next() {
+            tmdb_flat.insert(k, first);
+        }
     }
 
     Ok(ServerCache {
         name: name.to_string(),
         users,
-        imdb_to_id,
-        tmdb_to_id,
+        imdb_to_id: imdb_flat,
+        tmdb_to_id: tmdb_flat,
         id_to_providers,
+        last_negative_cache: None,
     })
 }
 
-// Safe substring containment matching (allows "john doe" <-> "john" but prevents "John Doe" <-> "John Smith")
+fn min_substring_len(a: &str, b: &str) -> usize {
+    (a.len().min(b.len()) / 2).max(3)
+}
+
 pub fn find_mapped_user_id(
     source_username: &str,
     target_users: &HashMap<String, String>,
@@ -112,7 +141,6 @@ pub fn find_mapped_user_id(
 ) -> Option<String> {
     let src_lower = source_username.to_lowercase();
 
-    // 1. Try Custom Mappings first
     for group in custom_mappings {
         if group.iter().any(|u| u.to_lowercase() == src_lower) {
             for mapped_name in group {
@@ -126,17 +154,28 @@ pub fn find_mapped_user_id(
         }
     }
 
-    // 2. Fall back to exact case-insensitive match
     if let Some(id) = target_users.get(&src_lower) {
         return Some(id.clone());
     }
 
-    // 3. Fall back to safe substring containment matching
-    for (tgt_name, tgt_id) in target_users {
-        let tgt_lower = tgt_name.to_lowercase();
-        if src_lower.contains(&tgt_lower) || tgt_lower.contains(&src_lower) {
-            return Some(tgt_id.clone());
-        }
+    let mut candidates: Vec<(&String, &String)> = target_users
+        .iter()
+        .filter(|(tgt_name, _)| {
+            let tgt_lower = tgt_name.to_lowercase();
+            let min_len = min_substring_len(&src_lower, &tgt_lower);
+            if src_lower.len() < min_len || tgt_lower.len() < min_len {
+                return false;
+            }
+            tgt_lower.contains(&src_lower) || src_lower.contains(&tgt_lower)
+        })
+        .collect();
+    candidates.sort_by(|a, b| {
+        let a_diff = (a.0.len() as i64 - src_lower.len() as i64).abs();
+        let b_diff = (b.0.len() as i64 - src_lower.len() as i64).abs();
+        a_diff.cmp(&b_diff)
+    });
+    if let Some((_, id)) = candidates.into_iter().next() {
+        return Some(id.clone());
     }
     None
 }
@@ -182,5 +221,23 @@ mod tests {
         target_users.insert("john smith".to_string(), "id777".to_string());
         let mapped = find_mapped_user_id("john doe", &target_users, &[]);
         assert_eq!(mapped, None);
+    }
+
+    #[test]
+    fn test_substring_length_guard_rejects_short_lookalikes() {
+        let mut target_users = HashMap::new();
+        target_users.insert("alice".to_string(), "id_a".to_string());
+        target_users.insert("aaron".to_string(), "id_b".to_string());
+        let mapped = find_mapped_user_id("a", &target_users, &[]);
+        assert_eq!(mapped, None);
+    }
+
+    #[test]
+    fn test_substring_picks_closest_match() {
+        let mut target_users = HashMap::new();
+        target_users.insert("alice smith".to_string(), "id_long".to_string());
+        target_users.insert("alice".to_string(), "id_short".to_string());
+        let mapped = find_mapped_user_id("alice", &target_users, &[]);
+        assert_eq!(mapped, Some("id_short".to_string()));
     }
 }

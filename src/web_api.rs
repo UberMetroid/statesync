@@ -5,10 +5,13 @@ use axum::{
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::client::MediaClient;
-use crate::config::{Config, validate_config};
+use crate::config::{Config, redacted_url, validate_config};
+use crate::state::AppState;
 use crate::web::WebServerState;
 
 const ITEM_ID_RE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
@@ -20,6 +23,35 @@ pub struct TestConnRequest {
     pub url: String,
     pub api_key: String,
     pub is_emby: bool,
+}
+
+pub struct CacheStats {
+    pub total_servers: usize,
+    pub connected_count: usize,
+    pub ever_connected_count: usize,
+    pub total_users: usize,
+}
+
+pub async fn cache_stats(app_state: &Arc<tokio::sync::Mutex<AppState>>) -> CacheStats {
+    let state = app_state.lock().await;
+    let total_servers = state.caches.len();
+    let connected_count = state
+        .websocket_statuses
+        .iter()
+        .filter(|s| s.as_str() == "Connected")
+        .count();
+    let ever_connected_count = state
+        .websocket_statuses
+        .iter()
+        .filter(|s| s.as_str() != "Offline")
+        .count();
+    let total_users: usize = state.caches.iter().map(|c| c.users.len()).sum();
+    CacheStats {
+        total_servers,
+        connected_count,
+        ever_connected_count,
+        total_users,
+    }
 }
 
 pub fn mask_api_key(key: &str) -> String {
@@ -75,12 +107,24 @@ pub async fn post_config(
             );
         }
     };
-    if std::fs::write(path, serialized).is_err() {
+    if let Err(e) = atomic_write(path, serialized.as_bytes()) {
+        tracing::error!("post_config: atomic write failed: {}", e);
         return Json(json!({ "status": "error", "message": "Failed to write configuration file" }));
     }
 
     let _ = state.reload_tx.send(()).await;
     Json(json!({ "status": "ok", "message": "Configuration saved. Sync service is reloading..." }))
+}
+
+fn atomic_write(path: &str, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = format!("{}.tmp", path);
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)
 }
 
 pub async fn test_connection(Json(req): Json<TestConnRequest>) -> Json<serde_json::Value> {
@@ -122,7 +166,7 @@ fn valid_server_name(name: &str) -> bool {
 }
 
 pub async fn serve_poster(
-    Extension(_state): Extension<Arc<WebServerState>>,
+    Extension(state): Extension<Arc<WebServerState>>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     let server_name = params.get("server").cloned().unwrap_or_default();
@@ -163,7 +207,8 @@ pub async fn serve_poster(
     let url = client.url_path(&path);
     let builder = client.add_auth_headers(client.client.get(&url));
 
-    match tokio::time::timeout(std::time::Duration::from_secs(10), builder.send()).await {
+    let _ = &state;
+    match tokio::time::timeout(Duration::from_secs(10), builder.send()).await {
         Ok(Ok(resp)) => {
             let content_type = resp
                 .headers()
@@ -177,6 +222,10 @@ pub async fn serve_poster(
                     res.headers_mut()
                         .insert(axum::http::header::CONTENT_TYPE, val);
                 }
+                res.headers_mut().insert(
+                    axum::http::header::CACHE_CONTROL,
+                    axum::http::HeaderValue::from_static("public, max-age=300"),
+                );
                 return res;
             }
         }
@@ -191,7 +240,6 @@ pub async fn serve_poster(
 pub async fn get_status(
     Extension(state): Extension<Arc<WebServerState>>,
 ) -> Json<serde_json::Value> {
-    use crate::config::redacted_url;
     let app_state = state.app_state.lock().await;
     let config = Config::load().unwrap_or_else(|_| Config {
         servers: vec![],
@@ -224,15 +272,17 @@ pub async fn get_status(
     }
 
     let mut mapped_users = Vec::new();
-    let mut processed = Vec::new();
+    let mut processed: HashSet<(usize, String)> = HashSet::new();
     for (srv_idx, cache) in app_state.caches.iter().enumerate() {
-        for username in cache.users.keys() {
+        let mut sorted_users: Vec<&String> = cache.users.keys().collect();
+        sorted_users.sort();
+        for username in sorted_users {
             if processed.contains(&(srv_idx, username.clone())) {
                 continue;
             }
             let mut group = vec![None; app_state.caches.len()];
             group[srv_idx] = Some(username.clone());
-            processed.push((srv_idx, username.clone()));
+            processed.insert((srv_idx, username.clone()));
             let mut has_any_match = false;
             for (other_idx, other_cache) in app_state.caches.iter().enumerate() {
                 if other_idx == srv_idx {
@@ -252,7 +302,7 @@ pub async fn get_status(
                 });
                 if let Some(name) = matched_name {
                     group[other_idx] = Some(name.clone());
-                    processed.push((other_idx, name));
+                    processed.insert((other_idx, name));
                     has_any_match = true;
                 }
             }
@@ -279,28 +329,15 @@ pub async fn get_status(
         }));
     }
 
-    let public_logs: Vec<_> = app_state
-        .sync_logs
-        .iter()
-        .map(|log| {
-            json!({
-                "timestamp": log.timestamp,
-                "level": log.level,
-                "message": log.message,
-                "source_name": log.source_name,
-                "source_is_emby": log.source_is_emby,
-                "target_name": log.target_name,
-                "target_is_emby": log.target_is_emby,
-            })
-        })
-        .collect();
-
     Json(json!({
         "status": "active",
+        "version": state.version,
+        "started_at": state.started_at,
+        "uptime_seconds": state.started_instant.elapsed().as_secs(),
         "servers": servers_status,
         "mapped_users": mapped_users,
         "active_sessions": active_sessions,
-        "sync_logs": public_logs
+        "sync_logs": app_state.sync_logs
     }))
 }
 

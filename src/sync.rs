@@ -1,11 +1,19 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
-use tracing::{error, info};
+use tokio::sync::{Mutex, Semaphore};
+use tracing::{error, info, warn};
 
 use crate::client::MediaClient;
 use crate::config::Config;
 use crate::state::{AppState, SyncHistoryValue};
+
+static SYNC_SEMAPHORE: once_cell::sync::Lazy<Semaphore> = once_cell::sync::Lazy::new(|| {
+    let permits = std::env::var("STATESYNC_MAX_SYNC_SPAWNS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(8);
+    Semaphore::new(permits.max(1))
+});
 
 pub async fn sync_progress_to_targets(
     user_name: &str,
@@ -19,9 +27,9 @@ pub async fn sync_progress_to_targets(
     config: &Config,
     source_client: &Arc<MediaClient>,
 ) {
+    let _permit = SYNC_SEMAPHORE.acquire().await;
     let user_lower = user_name.to_lowercase();
 
-    // 1. Resolve source item's provider IDs (with dynamic cache miss fallback)
     let (imdb_id, tmdb_id) = {
         let state = state_lock.lock().await;
         if source_index >= state.caches.len() {
@@ -106,7 +114,6 @@ pub async fn sync_progress_to_targets(
             );
         }
 
-        // 2. Resolve target item ID (with dynamic cache miss search)
         let mut target_item_id = None;
         let target_name;
         let mut is_negative_cached = false;
@@ -129,17 +136,19 @@ pub async fn sync_progress_to_targets(
 
         if target_item_id.is_none() && !is_negative_cached {
             drop(state);
-            let mut resolved = None;
+            let mut resolved: Option<(String, String, String)> = None;
+            let mut resolved_err: Option<String> = None;
             if let Some(ref t_uid) = target_user_id {
                 info!(
                     "Cache miss on target '{}' for (IMDb: {}, TMDb: {}). Searching target library...",
                     target_name, imdb_id, tmdb_id
                 );
-                if let Ok(res) = client_target
+                match client_target
                     .find_item_by_provider(t_uid, &imdb_id, &tmdb_id)
                     .await
                 {
-                    resolved = res;
+                    Ok(res) => resolved = res,
+                    Err(e) => resolved_err = Some(e.to_string()),
                 }
             }
             state = state_lock.lock().await;
@@ -158,7 +167,7 @@ pub async fn sync_progress_to_targets(
                         .insert(tmdb_id.clone(), id.clone());
                 }
                 target_item_id = Some(id);
-            } else {
+            } else if resolved_err.is_none() {
                 if !imdb_id.is_empty() {
                     state.caches[target_index]
                         .imdb_to_id
@@ -169,6 +178,13 @@ pub async fn sync_progress_to_targets(
                         .tmdb_to_id
                         .insert(tmdb_id.clone(), "[ NOT_FOUND ]".to_string());
                 }
+                state.caches[target_index].last_negative_cache =
+                    Some(Instant::now() + Duration::from_secs(3600));
+            } else if let Some(err) = resolved_err {
+                warn!(
+                    "Target '{}' lookup error (will not poison cache): {}",
+                    target_name, err
+                );
             }
         }
 
@@ -183,7 +199,6 @@ pub async fn sync_progress_to_targets(
                 },
             );
 
-            // 3. Threshold check: rate-limit updates and break infinite sync loop feedback
             if let Some(last_sync) = state.last_syncs.get(&history_key) {
                 let tick_diff = (last_sync.position_ticks - position).abs();
                 let time_diff = last_sync.timestamp.elapsed();
@@ -192,17 +207,9 @@ pub async fn sync_progress_to_targets(
                     && time_diff < Duration::from_secs(config.sync_threshold_seconds)
                     && !played
                 {
-                    continue; // Skip redundant updates
+                    continue;
                 }
             }
-
-            state.last_syncs.insert(
-                history_key.clone(),
-                SyncHistoryValue {
-                    position_ticks: position,
-                    timestamp: now,
-                },
-            );
 
             let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
             let pos_secs = position as f64 / 10_000_000.0;
@@ -230,16 +237,38 @@ pub async fn sync_progress_to_targets(
             let client_target_clone = client_target.clone();
             let target_name_clone = target_name.clone();
             let state_lock_clone = state_lock.clone();
+            let history_key_clone = history_key.clone();
+            let t_item_id_for_update = t_item_id.clone();
+            let t_user_id_for_update = t_user_id.clone();
+            drop(state);
+
             tokio::spawn(async move {
-                if let Err(e) = client_target_clone
-                    .update_progress(&t_user_id, &t_item_id, position, played)
-                    .await
-                {
-                    error!("Error updating target playstate: {}", e);
-                    state_lock_clone.lock().await.log_event(
-                        "error",
-                        &format!("Sync failed to '{}': {}", target_name_clone, e),
-                    );
+                let res = client_target_clone
+                    .update_progress(
+                        &t_user_id_for_update,
+                        &t_item_id_for_update,
+                        position,
+                        played,
+                    )
+                    .await;
+                let mut state = state_lock_clone.lock().await;
+                match res {
+                    Ok(()) => {
+                        state.last_syncs.insert(
+                            history_key_clone,
+                            SyncHistoryValue {
+                                position_ticks: position,
+                                timestamp: now,
+                            },
+                        );
+                    }
+                    Err(e) => {
+                        error!("Error updating target playstate: {}", e);
+                        state.log_event(
+                            "error",
+                            &format!("Sync failed to '{}': {}", target_name_clone, e),
+                        );
+                    }
                 }
             });
         }

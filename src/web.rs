@@ -1,12 +1,13 @@
 use axum::{
     Extension, Router,
     extract::Request,
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::{Mutex, mpsc};
 
 use crate::state::AppState;
@@ -18,9 +19,19 @@ pub struct WebServerState {
     #[allow(dead_code)]
     pub bind_addr: String,
     pub web_auth: Option<String>,
+    pub version: String,
+    pub started_at: String,
+    pub started_instant: Instant,
 }
 
-const PUBLIC_PATHS: &[&str] = &["/", "/manifest.json", "/sw.js", "/icon.svg", "/favicon.jpg"];
+const PUBLIC_PATHS: &[&str] = &[
+    "/",
+    "/manifest.json",
+    "/sw.js",
+    "/icon.svg",
+    "/favicon.jpg",
+    "/healthz",
+];
 
 pub fn create_router(web_state: Arc<WebServerState>) -> Router {
     let public = Router::new()
@@ -28,7 +39,8 @@ pub fn create_router(web_state: Arc<WebServerState>) -> Router {
         .route("/manifest.json", get(serve_manifest))
         .route("/sw.js", get(serve_sw))
         .route("/icon.svg", get(serve_icon))
-        .route("/favicon.jpg", get(serve_favicon));
+        .route("/favicon.jpg", get(serve_favicon))
+        .route("/healthz", get(serve_healthz));
 
     let protected = Router::new()
         .route(
@@ -48,11 +60,39 @@ pub fn create_router(web_state: Arc<WebServerState>) -> Router {
 
     public
         .merge(protected)
+        .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn_with_state(
             web_state.clone(),
             auth_middleware,
         ))
         .layer(Extension(web_state))
+}
+
+async fn security_headers(req: Request, next: Next) -> Response {
+    let mut resp = next.run(req).await;
+    let h = resp.headers_mut();
+    h.insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+    h.insert(
+        HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("no-referrer"),
+    );
+    h.insert(
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("interest-cohort=()"),
+    );
+    if let Ok(csp) = HeaderValue::from_str(
+        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'",
+    ) {
+        h.insert(HeaderName::from_static("content-security-policy"), csp);
+    }
+    resp
 }
 
 async fn auth_middleware(
@@ -66,11 +106,10 @@ async fn auth_middleware(
         Some(spec) => match spec.strip_prefix("bearer:") {
             Some(_) => true,
             None => {
-                eprintln!(
-                    "STATESYNC_WEB_AUTH must start with 'bearer:' (got unsupported scheme); \
-                     refusing to authenticate any request and exiting"
+                tracing::error!(
+                    "STATESYNC_WEB_AUTH must start with 'bearer:' (got unsupported scheme); all protected endpoints will reject"
                 );
-                std::process::exit(2);
+                false
             }
         },
     };
@@ -84,7 +123,16 @@ async fn auth_middleware(
         return next.run(req).await;
     }
 
-    let expected = token.unwrap().strip_prefix("bearer:").unwrap();
+    let expected = match token.unwrap().strip_prefix("bearer:") {
+        Some(t) => t,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                r#"{"error":"server misconfigured"}"#,
+            )
+                .into_response();
+        }
+    };
     if !constant_time_eq(&extract_bearer(req.headers()), expected) {
         return (
             StatusCode::UNAUTHORIZED,
@@ -140,7 +188,10 @@ async fn serve_icon() -> impl IntoResponse {
 
 async fn serve_favicon() -> impl IntoResponse {
     (
-        [("content-type", "image/jpeg")],
+        [
+            ("content-type", "image/jpeg"),
+            ("cache-control", "public, max-age=86400, immutable"),
+        ],
         include_bytes!("favicon.jpg").as_slice(),
     )
 }
@@ -150,4 +201,27 @@ async fn serve_sw() -> impl IntoResponse {
         [("content-type", "application/javascript")],
         "self.addEventListener('install',(e)=>{self.skipWaiting();});self.addEventListener('fetch',(e)=>{e.respondWith(fetch(e.request));});",
     )
+}
+
+async fn serve_healthz(Extension(state): Extension<Arc<WebServerState>>) -> impl IntoResponse {
+    use crate::web_api::cache_stats;
+    let stats = cache_stats(&state.app_state).await;
+    let healthy = stats.total_servers > 0
+        && (stats.connected_count > 0 || stats.ever_connected_count > 0 || stats.total_users > 0);
+    let uptime = state.started_instant.elapsed().as_secs();
+    let body = serde_json::json!({
+        "status": if healthy { "healthy" } else { "starting" },
+        "version": state.version,
+        "uptime_seconds": uptime,
+        "started_at": state.started_at,
+        "servers": stats.total_servers,
+        "connected": stats.connected_count,
+        "users": stats.total_users,
+    });
+    let status = if healthy {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (status, axum::Json(body))
 }

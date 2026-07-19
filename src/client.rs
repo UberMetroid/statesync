@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, anyhow};
-use reqwest::Client;
+use reqwest::{Client, Response};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsMessage {
@@ -29,7 +30,6 @@ pub struct UserDataEntry {
     pub playback_position_ticks: Option<i64>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct SessionInfo {
     #[serde(alias = "id", alias = "Id")]
@@ -65,11 +65,59 @@ pub struct MediaClient {
     pub is_emby: bool,
 }
 
+fn retry_enabled() -> bool {
+    std::env::var("STATESYNC_HTTP_RETRY")
+        .map(|v| !v.eq_ignore_ascii_case("off"))
+        .unwrap_or(true)
+}
+
+async fn send_with_retry(req: reqwest::RequestBuilder, label: &str) -> Result<Response> {
+    let enabled = retry_enabled();
+    let mut last_err: Option<anyhow::Error> = None;
+    let mut backoff_ms = 500u64;
+    let max_attempts = if enabled { 3 } else { 1 };
+    for attempt in 0..max_attempts {
+        let attempt_req = req
+            .try_clone()
+            .ok_or_else(|| anyhow!("request body not cloneable for retry"))?;
+        match attempt_req.send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    return Ok(resp);
+                }
+                if !enabled
+                    || status == reqwest::StatusCode::UNAUTHORIZED
+                    || status == reqwest::StatusCode::FORBIDDEN
+                {
+                    return Err(anyhow!("{}: HTTP {}", label, status));
+                }
+                if status.is_server_error() {
+                    last_err = Some(anyhow!("{}: HTTP {}", label, status));
+                } else {
+                    return Err(anyhow!("{}: HTTP {}", label, status));
+                }
+            }
+            Err(e) => {
+                last_err = Some(anyhow!("{}: {}", label, e));
+            }
+        }
+        if attempt + 1 < max_attempts {
+            tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+            backoff_ms = (backoff_ms * 2).min(8000);
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("{} failed", label)))
+}
+
 impl MediaClient {
     pub fn new(url: String, api_key: String, is_emby: bool) -> Self {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .connect_timeout(std::time::Duration::from_secs(15))
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(10))
+            .pool_idle_timeout(Duration::from_secs(60))
+            .tcp_keepalive(Duration::from_secs(60))
+            .tcp_nodelay(true)
             .build()
             .unwrap_or_else(|_| Client::new());
         Self {
@@ -125,38 +173,59 @@ impl MediaClient {
     }
 
     pub async fn get_library_items(&self) -> Result<HashMap<String, (String, String)>> {
-        let url = self
-            .url_path("/Items?Recursive=true&Fields=ProviderIds&IncludeItemTypes=Movie,Episode");
-        let resp = self
-            .add_auth_headers(self.client.get(&url))
-            .send()
+        let mut all_items: HashMap<String, (String, String)> = HashMap::new();
+        let mut start_index: usize = 0;
+        let page_size: usize = 500;
+        loop {
+            let path = format!(
+                "/Items?Recursive=true&Fields=ProviderIds&IncludeItemTypes=Movie,Episode&StartIndex={}&Limit={}",
+                start_index, page_size
+            );
+            let url = self.url_path(&path);
+            let resp = send_with_retry(
+                self.add_auth_headers(self.client.get(&url)),
+                "get_library_items",
+            )
             .await
-            .context("Failed to get library items")?;
+            .with_context(|| format!("Failed to get library items (StartIndex={})", start_index))?;
 
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .context("Failed to parse library response")?;
+            let data: serde_json::Value = resp
+                .json()
+                .await
+                .context("Failed to parse library response")?;
 
-        let mut map = HashMap::new();
-        if let Some(arr) = data.get("Items").and_then(|i| i.as_array()) {
-            for item in arr {
-                if let Some(id) = item.get("Id").and_then(|id| id.as_str()) {
-                    let mut imdb = String::new();
-                    let mut tmdb = String::new();
-                    if let Some(providers) = item.get("ProviderIds") {
-                        if let Some(val) = providers.get("Imdb").and_then(|v| v.as_str()) {
-                            imdb = val.to_string();
+            let items = data.get("Items").and_then(|i| i.as_array());
+            let total = data
+                .get("TotalRecordCount")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let page_count = items.map(|a| a.len()).unwrap_or(0);
+            if let Some(arr) = items {
+                for item in arr {
+                    if let Some(id) = item.get("Id").and_then(|id| id.as_str()) {
+                        let mut imdb = String::new();
+                        let mut tmdb = String::new();
+                        if let Some(providers) = item.get("ProviderIds") {
+                            if let Some(val) = providers.get("Imdb").and_then(|v| v.as_str()) {
+                                imdb = val.to_string();
+                            }
+                            if let Some(val) = providers.get("Tmdb").and_then(|v| v.as_str()) {
+                                tmdb = val.to_string();
+                            }
                         }
-                        if let Some(val) = providers.get("Tmdb").and_then(|v| v.as_str()) {
-                            tmdb = val.to_string();
-                        }
+                        all_items.insert(id.to_string(), (imdb, tmdb));
                     }
-                    map.insert(id.to_string(), (imdb, tmdb));
                 }
             }
+            if page_count < page_size || all_items.len() >= total {
+                break;
+            }
+            start_index += page_size;
+            if start_index > 100_000 {
+                break;
+            }
         }
-        Ok(map)
+        Ok(all_items)
     }
 
     pub async fn get_item_providers(
@@ -195,9 +264,15 @@ impl MediaClient {
     ) -> Result<Option<(String, String, String)>> {
         let mut path = format!("/Users/{}/Items?Recursive=true&Fields=ProviderIds", user_id);
         if !imdb_id.is_empty() {
-            path.push_str(&format!("&AnyProviderIdTypes=Imdb&ProviderIds={}", imdb_id));
+            path.push_str(&format!(
+                "&AnyProviderIdTypes=Imdb&ProviderIds={}",
+                percent_encoding::utf8_percent_encode(imdb_id, percent_encoding::NON_ALPHANUMERIC)
+            ));
         } else if !tmdb_id.is_empty() {
-            path.push_str(&format!("&AnyProviderIdTypes=Tmdb&ProviderIds={}", tmdb_id));
+            path.push_str(&format!(
+                "&AnyProviderIdTypes=Tmdb&ProviderIds={}",
+                percent_encoding::utf8_percent_encode(tmdb_id, percent_encoding::NON_ALPHANUMERIC)
+            ));
         } else {
             return Ok(None);
         }

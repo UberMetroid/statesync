@@ -5,28 +5,23 @@
     clippy::single_match
 )]
 
-mod client;
-mod config;
-mod dashboard;
-mod state;
-mod sync;
-mod web;
-mod web_api;
-mod websocket;
-
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tracing::{error, info, warn};
 
-use crate::client::MediaClient;
-use crate::config::{Config, is_loopback_bind, redacted_url};
-use crate::state::{AppState, init_server_cache};
-use crate::web::{WebServerState, create_router};
-use crate::websocket::{handle_websocket_loop, make_ws_url};
+use statesync::{
+    client::MediaClient,
+    config::{Config, is_loopback_bind, redacted_url},
+    state::{AppState, init_server_cache},
+    web::{WebServerState, create_router},
+    websocket::{handle_websocket_loop, make_ws_url},
+};
 
 const DEFAULT_BIND: &str = "127.0.0.1:8754";
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn resolve_bind_addr() -> String {
     std::env::var("STATESYNC_BIND").unwrap_or_else(|_| DEFAULT_BIND.to_string())
@@ -51,7 +46,7 @@ async fn main() -> Result<()> {
         let cmd = &args[1];
         match cmd.as_str() {
             "--version" | "-v" => {
-                println!("statesync version {}", env!("CARGO_PKG_VERSION"));
+                println!("statesync version {}", VERSION);
                 return Ok(());
             }
             "--help" | "-h" => {
@@ -67,6 +62,9 @@ async fn main() -> Result<()> {
             "--tui" => {
                 return run_tui().await;
             }
+            "--dry-run" => {
+                return dry_run().await;
+            }
             _ => {
                 eprintln!(
                     "Unknown argument: {}. Use --help to see available commands.",
@@ -77,8 +75,8 @@ async fn main() -> Result<()> {
         }
     }
 
-    tracing_subscriber::fmt::init();
-    info!("Starting statesync Sidecar...");
+    init_logging();
+    info!("Starting statesync v{} sidecar...", VERSION);
 
     let bind_addr = resolve_bind_addr();
     let web_auth = resolve_web_auth();
@@ -92,36 +90,30 @@ async fn main() -> Result<()> {
         std::process::exit(2);
     }
 
-    // Shared thread-safe state container. Starts empty.
     let app_state = Arc::new(Mutex::new(AppState::new(vec![])));
-
-    // Reload channel to notify the sync loop to rebuild caches & restart websocket threads
     let (reload_tx, mut reload_rx) = mpsc::channel::<()>(5);
+    let started_at = chrono::Utc::now().to_rfc3339();
+    let started_instant = std::time::Instant::now();
 
-    // Build Axum web router
     let web_state = Arc::new(WebServerState {
         app_state: app_state.clone(),
         reload_tx: reload_tx.clone(),
         bind_addr: bind_addr.clone(),
         web_auth: web_auth.clone(),
+        version: VERSION.to_string(),
+        started_at: started_at.clone(),
+        started_instant,
     });
     let app = create_router(web_state);
 
-    // Spawn the HTTP server
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("Failed to bind web UI server to {}", bind_addr))?;
 
     if web_auth.is_some() {
-        info!(
-            "Web UI Dashboard listening on http://{} (auth required)",
-            bind_addr
-        );
+        info!("Web UI listening on http://{} (auth required)", bind_addr);
     } else {
-        info!(
-            "Web UI Dashboard listening on http://{} (loopback only)",
-            bind_addr
-        );
+        info!("Web UI listening on http://{} (loopback only)", bind_addr);
     }
 
     tokio::spawn(async move {
@@ -130,7 +122,8 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Orchestrator loop
+    let mut shutdown_signal = install_shutdown_handler();
+
     loop {
         info!("Loading configuration...");
         let config_res = Config::load();
@@ -142,98 +135,39 @@ async fn main() -> Result<()> {
                     "Configuration load warning: {}. Web UI is active. Waiting for settings updates...",
                     e
                 );
-                // Wait for a reload signal from the Web UI before trying again
-                let _ = reload_rx.recv().await;
-                continue;
+                tokio::select! {
+                    _ = reload_rx.recv() => continue,
+                    _ = &mut shutdown_signal => {
+                        info!("Shutdown signal received, exiting.");
+                        return Ok(());
+                    }
+                }
             }
         };
 
         for s in &config.servers {
             if s.url.starts_with("http://") && !s.allow_insecure_http {
                 warn!(
-                    "Server '{}' is using plaintext HTTP; consider HTTPS to protect API keys in transit.",
+                    "Server '{}' uses plaintext HTTP; consider HTTPS to protect API keys in transit.",
                     s.name
                 );
             }
         }
 
-        let mut clients = Vec::new();
-        let mut caches = Vec::new();
-
-        // Initialize all clients and cache metadata
-        for s in &config.servers {
-            {
-                let mut state = app_state.lock().await;
-                state.log_event(
-                    "info",
-                    &format!(
-                        "Connecting to server '{}' ({})",
-                        s.name,
-                        redacted_url(&s.url)
-                    ),
+        let (clients, caches) = match init_clients_parallel(&config, &app_state).await {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(
+                    "Failed to initialize clients/caches: {}. Retrying on reload.",
+                    e
                 );
-                state.log_event(
-                    "info",
-                    &format!("Initializing metadata cache for '{}'...", s.name),
-                );
-            }
-            info!(
-                "Connecting to server '{}' ({})",
-                s.name,
-                redacted_url(&s.url)
-            );
-            info!("Initializing metadata cache for '{}'...", s.name);
-            let client = Arc::new(MediaClient::new(
-                s.url.clone(),
-                s.api_key.clone(),
-                s.is_emby,
-            ));
-
-            match init_server_cache(&s.name, &client).await {
-                Ok(cache) => {
-                    info!(
-                        "Cache loaded for '{}': {} users, {} matched media items.",
-                        s.name,
-                        cache.users.len(),
-                        cache.id_to_providers.len()
-                    );
-                    app_state.lock().await.log_event(
-                        "success",
-                        &format!(
-                            "Cache loaded for '{}': {} users, {} media",
-                            s.name,
-                            cache.users.len(),
-                            cache.id_to_providers.len()
-                        ),
-                    );
-                    clients.push(client);
-                    caches.push(cache);
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to initialize cache for server '{}' on startup: {}. Retrying in background...",
-                        s.name, e
-                    );
-                    app_state.lock().await.log_event(
-                        "warn",
-                        &format!(
-                            "Offline server '{}' on startup. Retrying in background...",
-                            s.name
-                        ),
-                    );
-                    clients.push(client);
-                    caches.push(crate::state::ServerCache {
-                        name: s.name.clone(),
-                        users: std::collections::HashMap::new(),
-                        imdb_to_id: std::collections::HashMap::new(),
-                        tmdb_to_id: std::collections::HashMap::new(),
-                        id_to_providers: std::collections::HashMap::new(),
-                    });
+                tokio::select! {
+                    _ = reload_rx.recv() => continue,
+                    _ = &mut shutdown_signal => return Ok(()),
                 }
             }
-        }
+        };
 
-        // Update shared AppState for the Web UI status report
         {
             let mut state = app_state.lock().await;
             let count = caches.len();
@@ -241,10 +175,8 @@ async fn main() -> Result<()> {
             state.websocket_statuses = vec!["Offline".to_string(); count];
         }
 
-        // Create broadcast shutdown channel to terminate the current websocket connection threads
         let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
-        // Spawn websocket connection loops
         for (i, s) in config.servers.iter().enumerate() {
             let ws_url = make_ws_url(&s.url, &s.api_key, s.is_emby);
             if ws_url.starts_with("ws://") {
@@ -281,16 +213,130 @@ async fn main() -> Result<()> {
 
         info!("All synchronization loops started.");
 
-        // Block here until a reload signal is sent from the Web UI
-        let _ = reload_rx.recv().await;
-        info!("Reload signal received. Shutting down active synchronization loops...");
-
-        // Terminate all current websocket tasks
-        let _ = shutdown_tx.send(());
-
-        // Wait brief moment for threads to wind down
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::select! {
+            _ = reload_rx.recv() => {
+                info!("Reload signal received. Shutting down active synchronization loops...");
+                let _ = shutdown_tx.send(());
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            _ = &mut shutdown_signal => {
+                info!("Shutdown signal received, exiting.");
+                let _ = shutdown_tx.send(());
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                return Ok(());
+            }
+        }
     }
+}
+
+async fn init_clients_parallel(
+    config: &Config,
+    app_state: &Arc<Mutex<AppState>>,
+) -> Result<(Vec<Arc<MediaClient>>, Vec<statesync::state::ServerCache>)> {
+    let mut init_futures = Vec::new();
+    for s in &config.servers {
+        let name = s.name.clone();
+        let url = s.url.clone();
+        let api_key = s.api_key.clone();
+        let is_emby = s.is_emby;
+        let app_state = app_state.clone();
+        init_futures.push(tokio::spawn(async move {
+            {
+                let mut state = app_state.lock().await;
+                state.log_event(
+                    "info",
+                    &format!("Connecting to server '{}' ({})", name, redacted_url(&url)),
+                );
+                state.log_event(
+                    "info",
+                    &format!("Initializing metadata cache for '{}'...", name),
+                );
+            }
+            info!("Connecting to server '{}' ({})", name, redacted_url(&url));
+            info!("Initializing metadata cache for '{}'...", name);
+            let client = Arc::new(MediaClient::new(url.clone(), api_key.clone(), is_emby));
+            match init_server_cache(&name, &client).await {
+                Ok(cache) => {
+                    info!(
+                        "Cache loaded for '{}': {} users, {} matched media items.",
+                        name,
+                        cache.users.len(),
+                        cache.id_to_providers.len()
+                    );
+                    app_state.lock().await.log_event(
+                        "success",
+                        &format!(
+                            "Cache loaded for '{}': {} users, {} media",
+                            name,
+                            cache.users.len(),
+                            cache.id_to_providers.len()
+                        ),
+                    );
+                    Some((client, cache))
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to initialize cache for server '{}' on startup: {}. Retrying in background...",
+                        name, e
+                    );
+                    app_state.lock().await.log_event(
+                        "warn",
+                        &format!("Offline server '{}' on startup. Retrying in background...", name),
+                    );
+                    Some((
+                        client,
+                        statesync::state::ServerCache {
+                            name: name.clone(),
+                            users: std::collections::HashMap::new(),
+                            imdb_to_id: std::collections::HashMap::new(),
+                            tmdb_to_id: std::collections::HashMap::new(),
+                            id_to_providers: std::collections::HashMap::new(),
+                            last_negative_cache: None,
+                        },
+                    ))
+                }
+            }
+        }));
+    }
+
+    let mut clients = Vec::new();
+    let mut caches = Vec::new();
+    for fut in init_futures {
+        if let Ok(Some((client, cache))) = fut.await {
+            clients.push(client);
+            caches.push(cache);
+        }
+    }
+
+    Ok((clients, caches))
+}
+
+fn init_logging() {
+    use tracing_subscriber::{EnvFilter, fmt};
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let _ = fmt().with_env_filter(filter).try_init();
+}
+
+fn install_shutdown_handler() -> tokio::sync::oneshot::Receiver<()> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let mut sigterm =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+        let mut sigint =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+        tokio::select! {
+            _ = sigterm.recv() => info!("SIGTERM received."),
+            _ = sigint.recv() => info!("SIGINT received."),
+        }
+        let _ = tx.send(());
+    });
+    rx
 }
 
 fn print_help() {
@@ -303,6 +349,7 @@ fn print_help() {
     println!("  --validate       Validate config.json and test server connections");
     println!("  --reload         Trigger reload of config.json on the running service");
     println!("  --tui            Launch the interactive terminal dashboard");
+    println!("  --dry-run        Load config, init caches, run mapping dry-run; exit 0/1");
     println!();
     println!("Environment Variables:");
     println!("  STATESYNC_BIND                 Listen address (default: 127.0.0.1:8754)");
@@ -315,14 +362,30 @@ fn print_help() {
     );
     println!("  STATESYNC_SERVER_<N>_*         Per-server env-var config (see README).");
     println!("  STATESYNC_SYNC_THRESHOLD_SECONDS   Sync threshold (default 5).");
-    println!("  RUST_LOG                       tracing log filter (default: info).");
+    println!("  STATESYNC_LOG_FORMAT           'text' (default) or 'json'.");
+    println!("  STATESYNC_HTTP_RETRY           'off' to disable retry with backoff.");
+    println!("  STATESYNC_MAX_SYNC_SPAWNS      Max concurrent sync tasks per source (default 8).");
+    println!("  STATESYNC_LOG_RETENTION        Number of log entries kept in memory (default 30).");
+    println!("  RUST_LOG                       tracing log filter (overrides default 'info').");
     println!("  TZ                             Container timezone.");
 }
 
 async fn trigger_reload() -> Result<()> {
     println!("Sending reload signal to active statesync service...");
-    let client = reqwest::Client::new();
-    match client.post("http://127.0.0.1:8754/api/reload").send().await {
+    let url = std::env::var("STATESYNC_RELOAD_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8754/api/reload".to_string());
+    let token = std::env::var("STATESYNC_WEB_AUTH").ok();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    let mut req = client.post(&url);
+    if let Some(t) = token {
+        if let Some(b) = t.strip_prefix("bearer:") {
+            req = req.bearer_auth(b);
+        }
+    }
+    match req.send().await {
         Ok(resp) => {
             if resp.status() == reqwest::StatusCode::OK {
                 println!("✓ Reload signal successfully sent. Active service is reloading config.");
@@ -337,10 +400,7 @@ async fn trigger_reload() -> Result<()> {
             }
         }
         Err(e) => {
-            println!(
-                "✗ Failed to connect to active statesync service on port 8754: {}",
-                e
-            );
+            println!("✗ Failed to connect to active statesync service: {}", e);
             println!("Make sure the statesync background container/service is running.");
             std::process::exit(1);
         }
@@ -391,25 +451,102 @@ async fn validate_config() -> Result<()> {
     }
 }
 
-async fn run_tui() -> Result<()> {
-    let client = reqwest::Client::new();
-    let url = "http://127.0.0.1:8754/api/status";
+async fn dry_run() -> Result<()> {
+    use std::collections::HashSet;
+    println!("=== DRY RUN ===");
+    init_logging();
+    let config = match Config::load() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            println!("✗ Failed to load configuration: {}", e);
+            std::process::exit(1);
+        }
+    };
+    println!("Loaded {} server(s).", config.servers.len());
+    let mut caches = Vec::new();
+    for s in &config.servers {
+        println!("Initializing cache for '{}'...", s.name);
+        let client = MediaClient::new(s.url.clone(), s.api_key.clone(), s.is_emby);
+        match init_server_cache(&s.name, &client).await {
+            Ok(c) => caches.push(c),
+            Err(e) => {
+                println!("  ✗ '{}' failed: {}", s.name, e);
+                std::process::exit(1);
+            }
+        }
+    }
+    let mut seen: HashSet<(usize, String)> = HashSet::new();
+    let mut ambiguous = 0u32;
+    for (idx, cache) in caches.iter().enumerate() {
+        for username in cache.users.keys() {
+            let key = (idx, username.clone());
+            if seen.contains(&key) {
+                continue;
+            }
+            for (other_idx, other_cache) in caches.iter().enumerate() {
+                if other_idx == idx {
+                    continue;
+                }
+                let matched = statesync::state::find_mapped_user_id(
+                    username,
+                    &other_cache.users,
+                    &config.user_mappings,
+                );
+                if let Some(_id) = matched {
+                    seen.insert(key.clone());
+                    seen.insert((other_idx, _id));
+                }
+            }
+        }
+    }
+    for c in &caches {
+        if c.users.is_empty() {
+            println!("  ! '{}' has no users", c.name);
+            ambiguous += 1;
+        }
+    }
+    if ambiguous > 0 {
+        println!("\n✗ {} problem(s) detected.", ambiguous);
+        std::process::exit(1);
+    }
+    println!("\n✓ Dry run complete; no problems detected.");
+    Ok(())
+}
 
+async fn run_tui() -> Result<()> {
+    let bind_addr = resolve_bind_addr();
+    let web_auth = resolve_web_auth();
+    let url = std::env::var("STATESYNC_TUI_URL")
+        .unwrap_or_else(|_| format!("http://{}/api/status", bind_addr));
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     loop {
-        match client.get(url).send().await {
+        let mut req = client.get(&url);
+        if let Some(spec) = web_auth.as_deref() {
+            if let Some(token) = spec.strip_prefix("bearer:") {
+                req = req.bearer_auth(token);
+            }
+        }
+        match req.send().await {
             Ok(resp) => {
                 if resp.status() == reqwest::StatusCode::OK {
                     if let Ok(status) = resp.json::<serde_json::Value>().await {
                         draw_tui_from_json(&status);
                     }
+                } else {
+                    print!("\x1B[2J\x1B[H");
+                    println!(
+                        "✗ TUI got HTTP {} from {}. Check STATESYNC_WEB_AUTH / STATESYNC_BIND.",
+                        resp.status(),
+                        url
+                    );
                 }
             }
             Err(e) => {
                 print!("\x1B[2J\x1B[H");
-                println!(
-                    "✗ Cannot connect to statesync background service on port 8754: {}",
-                    e
-                );
+                println!("✗ Cannot connect to statesync background service: {}", e);
                 println!("Make sure the statesync background container is running.");
             }
         }
@@ -418,18 +555,13 @@ async fn run_tui() -> Result<()> {
 }
 
 fn draw_tui_from_json(status: &serde_json::Value) {
-    // Clear screen and move cursor to top-left
     print!("\x1B[2J\x1B[H");
-
     println!(
         "\x1B[1m\x1B[36m┌──────────────────────────────────────────────────────────────────────────────┐\x1B[0m"
     );
     println!(
-        "\x1B[1m\x1B[36m│                       STATESYNC TERMINAL DASHBOARD                           │\x1B[0m"
-    );
-    println!(
-        "\x1B[1m\x1B[36m│                       Version: v{:<44} │\x1B[0m",
-        env!("CARGO_PKG_VERSION")
+        "\x1B[1m\x1B[36m│                       STATESYNC TERMINAL DASHBOARD v{:>5}                │\x1B[0m",
+        VERSION
     );
     println!(
         "\x1B[1m\x1B[36m└──────────────────────────────────────────────────────────────────────────────┘\x1B[0m"
@@ -522,10 +654,10 @@ fn draw_tui_from_json(status: &serde_json::Value) {
                 let message = entry.get("message").and_then(|v| v.as_str()).unwrap_or("");
 
                 let color = match level {
-                    "success" => "\x1B[32m", // Green
-                    "warn" => "\x1B[33m",    // Yellow
-                    "error" => "\x1B[31m",   // Red
-                    _ => "\x1B[37m",         // White
+                    "success" => "\x1B[32m",
+                    "warn" => "\x1B[33m",
+                    "error" => "\x1B[31m",
+                    _ => "\x1B[37m",
                 };
                 println!("  [{}] {}{}\x1B[0m", timestamp, color, message);
             }
@@ -535,7 +667,6 @@ fn draw_tui_from_json(status: &serde_json::Value) {
     }
     println!("\n\x1B[90m(Press Ctrl+C to close and exit dashboard)\x1B[0m");
 
-    // Flush stdout to make sure the terminal updates immediately
     use std::io::Write;
     let _ = std::io::stdout().flush();
 }

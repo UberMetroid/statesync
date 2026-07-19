@@ -57,6 +57,7 @@ pub fn render_dashboard() -> Markup {
                         h2 { "[ TERMINAL LOG FEED ]" }
                         div class="log-feed" id="syncLogs" {}
                     }
+                    div id="versionFooter" class="version-footer" {}
                 }
                 div class="modal" id="serverModal" {
                     div class="modal-content" {

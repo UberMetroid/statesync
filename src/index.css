@@ -35,3 +35,11 @@ select option { background: #0a0e17; color: var(--text); }
 input:focus, select:focus { border-color: var(--border); box-shadow: 0 0 8px rgba(0,240,255,0.4); }
 .toast { position: fixed; bottom: 20px; right: 20px; background: var(--panel); border: 1px solid var(--border); padding: 12px 20px; display: none; animation: pulse 1s infinite alternate; }
 @keyframes pulse { from { box-shadow: 0 0 5px var(--border); } to { box-shadow: 0 0 15px var(--border); } }
+.version-footer { text-align: center; color: var(--text); font-size: 11px; opacity: 0.5; margin-top: 30px; padding-top: 15px; border-top: 1px solid rgba(0,240,255,0.1); }
+@media (max-width: 768px) {
+  body { padding: 12px; }
+  .container { max-width: 100%; }
+  .row-grid { grid-template-columns: 1fr; gap: 15px; }
+  .modal-content { width: 90vw; max-width: 450px; }
+  h1 { flex-direction: column; gap: 12px; align-items: flex-start; }
+}
