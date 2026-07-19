@@ -392,7 +392,7 @@ impl MediaClient {
         limit: usize,
     ) -> Result<Vec<PlayedItem>> {
         let path = format!(
-            "/Users/{}/Items?Recursive=true&Fields=ProviderIds,UserData&Filters=IsPlayed=true&StartIndex={}&Limit={}",
+            "/Users/{}/Items?Recursive=true&Fields=ProviderIds,UserData&Filters=IsPlayed&StartIndex={}&Limit={}",
             user_id, start_index, limit
         );
         let url = self.url_path(&path);
@@ -453,7 +453,7 @@ impl MediaClient {
 
     pub async fn get_user_played_items_count(&self, user_id: &str) -> Result<u64> {
         let path = format!(
-            "/Users/{}/Items?Recursive=true&Filters=IsPlayed=true&Limit=0",
+            "/Users/{}/Items?Recursive=true&Filters=IsPlayed&Limit=0",
             user_id
         );
         let url = self.url_path(&path);

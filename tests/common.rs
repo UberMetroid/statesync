@@ -102,7 +102,7 @@ pub fn mock_get_user_played_items(
             .mock(
                 "GET",
                 format!(
-                    "/Users/{}/Items?Recursive=true&Fields=ProviderIds&Filters=IsPlayed=true&StartIndex={}&Limit=500",
+                    "/Users/{}/Items?Recursive=true&Fields=ProviderIds&Filters=IsPlayed&StartIndex={}&Limit=500",
                     user_id, i * 500
                 )
                 .as_str(),
