@@ -118,6 +118,9 @@ pub async fn run_force_sync(ctx: ForceContext) -> ForceSyncStatus {
     ctx.tracker
         .force_sync_in_progress
         .store(true, Ordering::SeqCst);
+    ctx.tracker
+        .cancel
+        .store(false, Ordering::SeqCst);
 
     let started = chrono::Utc::now();
     {
@@ -252,16 +255,25 @@ async fn run_force_sync_inner(
     let mut failed_total: u64 = 0;
     let mut errors: Vec<ForceSyncError> = Vec::new();
 
+    let mut cancelled = false;
     for (src_idx, tgt_idx, src_user_id, tgt_user_id) in &pairs {
+        if tracker.cancel.load(Ordering::SeqCst) {
+            cancelled = true;
+            break;
+        }
         status.current_user = Some(src_user_id.clone());
         write_status(tracker, &status);
-
+ 
         let source_client = clients[*src_idx].clone();
         let target_client = clients[*tgt_idx].clone();
         let page_size: usize = 500;
-
+ 
         let mut page: usize = 0;
         loop {
+            if tracker.cancel.load(Ordering::SeqCst) {
+                cancelled = true;
+                break;
+            }
             if page * page_size >= FORCE_ITEM_CAP {
                 warn!(
                     "force-sync reached {} item cap; stopping at user {} on {}",
@@ -313,9 +325,13 @@ async fn run_force_sync_inner(
                 break;
             }
             for item in items {
+                if tracker.cancel.load(Ordering::SeqCst) {
+                    cancelled = true;
+                    break;
+                }
                 let started_item = Instant::now();
                 let _permit = semaphore.acquire().await;
-
+ 
                 let imdb = item.imdb_id.clone().unwrap_or_default();
                 let tmdb = item.tmdb_id.clone().unwrap_or_default();
                 if imdb.is_empty() && tmdb.is_empty() {
@@ -415,19 +431,30 @@ async fn run_force_sync_inner(
                 status.failed = failed_total;
                 write_status(tracker, &status);
             }
+            if cancelled {
+                break;
+            }
             page += 1;
         }
+        if cancelled {
+            break;
+        }
     }
-
+ 
     let now = chrono::Utc::now();
     status.finished_at = Some(now.to_rfc3339());
     status.current_user = None;
     status.errors = errors.clone();
-    status.state = if failed_total == 0 {
-        ForceSyncState::Completed
+    if cancelled {
+        status.state = ForceSyncState::Failed;
+        status.last_error = Some("Sync cancelled by user".to_string());
     } else {
-        ForceSyncState::Failed
-    };
+        status.state = if failed_total == 0 {
+            ForceSyncState::Completed
+        } else {
+            ForceSyncState::Failed
+        };
+    }
     status.processed = processed_total;
     status.succeeded = succeeded_total;
     status.skipped = skipped_total;
