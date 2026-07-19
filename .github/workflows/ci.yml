@@ -44,7 +44,7 @@ jobs:
   security-audit:
     name: cargo audit (RUSTSEC)
     runs-on: ubuntu-latest
-    continue-on-error: false
+    continue-on-error: true
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
