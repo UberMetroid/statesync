@@ -19,5 +19,6 @@
 
   <Config Name="Log Level" Target="RUST_LOG" Default="info" Mode="" Description="Log level (info, warn, error, debug)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="Container timezone (e.g. America/New_York)" Type="Variable" Display="always" Required="false" Mask="false"/>
-  <Config Name="Web UI Bearer Token" Target="STATESYNC_WEB_AUTH" Default="" Mode="" Description="Optional. Format: bearer:&lt;token&gt;. Generate with: openssl rand -hex 32" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Allow Insecure HTTP" Target="STATESYNC_ALLOW_INSECURE_HTTP" Default="true" Mode="" Description="Allow plain http:// URLs to upstream Emby/Jellyfin servers. Default true (LAN). Set false to force https:// only." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Web UI Bearer Token" Target="STATESYNC_WEB_AUTH" Default="" Mode="" Description="Optional. Format: bearer:&lt;token&gt;. Generate with: openssl rand -hex 32. Leave blank for open LAN access." Type="Variable" Display="advanced" Required="false" Mask="true"/>
 </Container>

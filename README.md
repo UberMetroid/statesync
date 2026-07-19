@@ -94,7 +94,7 @@ You can also configure everything in the web UI — changes save to this file.
 | `STATESYNC_SERVER_<N>_TYPE` | — | `emby` or `jellyfin` |
 | `STATESYNC_SERVER_<N>_DIRECTION` | — | `both`, `send`, or `receive` |
 | `STATESYNC_SYNC_THRESHOLD_SECONDS` | `5` | |
-| `STATESYNC_ALLOW_INSECURE_HTTP` | `false` | Set `true` to permit `http://` URLs (testing only) |
+| `STATESYNC_ALLOW_INSECURE_HTTP` | `true` | Permits plain `http://` URLs to upstream servers (LAN-friendly default). Set `false` to require `https://`. |
 | `STATESYNC_HTTP_RETRY` | `on` | Set `off` to disable HTTP retry on transient errors |
 | `STATESYNC_LOG_RETENTION` | `30` | Number of log entries kept in memory |
 | `RUST_LOG` | `info` | tracing-subscriber filter |

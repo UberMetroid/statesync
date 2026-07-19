@@ -18,8 +18,12 @@ pub struct ServerConfig {
     pub is_emby: bool,
     #[serde(default = "default_sync_direction")]
     pub sync_direction: String, // "both", "send", "receive"
-    #[serde(default)]
+    #[serde(default = "default_allow_insecure_http")]
     pub allow_insecure_http: bool,
+}
+
+fn default_allow_insecure_http() -> bool {
+    true
 }
 
 fn default_sync_direction() -> String {
@@ -181,8 +185,8 @@ impl Config {
                     is_emby,
                     sync_direction,
                     allow_insecure_http: env::var(format!("STATESYNC_SERVER_{}_INSECURE", i))
-                        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                        .unwrap_or(false),
+                        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+                        .unwrap_or(true),
                 });
             }
         }
@@ -204,8 +208,8 @@ impl Config {
                     is_emby: true,
                     sync_direction: "both".to_string(),
                     allow_insecure_http: env::var("STATESYNC_ALLOW_INSECURE_HTTP")
-                        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                        .unwrap_or(false),
+                        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+                        .unwrap_or(true),
                 });
                 servers.push(ServerConfig {
                     name: "Jellyfin".to_string(),
@@ -214,8 +218,8 @@ impl Config {
                     is_emby: false,
                     sync_direction: "both".to_string(),
                     allow_insecure_http: env::var("STATESYNC_ALLOW_INSECURE_HTTP")
-                        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                        .unwrap_or(false),
+                        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+                        .unwrap_or(true),
                 });
             }
         }
@@ -384,10 +388,10 @@ mod tests {
     }
 
     #[test]
-    fn test_rejects_http_without_allow_flag() {
+    fn test_rejects_http_when_explicitly_disallowed() {
         let json = r#"{
             "servers": [
-                {"name":"s","url":"http://x:8096","api_key":"k","is_emby":true}
+                {"name":"s","url":"http://x:8096","api_key":"k","is_emby":true,"allow_insecure_http":false}
             ]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
@@ -395,13 +399,26 @@ mod tests {
     }
 
     #[test]
-    fn test_accepts_http_with_allow_flag() {
+    fn test_accepts_http_by_default() {
         let json = r#"{
             "servers": [
-                {"name":"s","url":"http://x:8096","api_key":"k","is_emby":true,"allow_insecure_http":true}
+                {"name":"s","url":"http://x:8096","api_key":"k","is_emby":true}
             ]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
+        assert!(cfg.servers[0].allow_insecure_http);
+        assert!(validate_config(&cfg).is_ok());
+    }
+
+    #[test]
+    fn test_accepts_https_by_default() {
+        let json = r#"{
+            "servers": [
+                {"name":"s","url":"https://x:8096","api_key":"k","is_emby":true}
+            ]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert!(cfg.servers[0].allow_insecure_http);
         assert!(validate_config(&cfg).is_ok());
     }
 
