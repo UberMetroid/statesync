@@ -20,7 +20,10 @@ pub fn render_dashboard() -> Markup {
                 body {
                     div class="container" {
                         h1 {
-                            span { "StateSync" }
+                            div style="display: flex; align-items: center; gap: 12px;" {
+                                img src="/favicon.jpg" style="width: 36px; height: 36px; border-radius: 4px; border: 1px solid var(--border);" alt="";
+                                span { "StateSync" }
+                            }
                             div style="display: flex; gap: 10px; align-items: center;" {
                                 button class="btn" id="refreshUsersBtn" onclick="refreshUsers()" { "[ REFRESH USERS ]" }
                                 button class="btn btn-accent" id="forceSyncBtn" onclick="forceSync()" { "[ FORCE SYNC ]" }
