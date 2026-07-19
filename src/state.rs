@@ -1,7 +1,7 @@
+use crate::client::MediaClient;
+use anyhow::Result;
 use std::collections::HashMap;
 use std::time::Instant;
-use anyhow::Result;
-use crate::client::MediaClient;
 
 #[derive(Debug, Clone)]
 pub struct ServerCache {
@@ -52,15 +52,18 @@ impl AppState {
 
     pub fn log_event(&mut self, level: &str, msg: &str) {
         let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
-        self.sync_logs.insert(0, SyncLogEntry {
-            timestamp,
-            level: level.to_string(),
-            message: msg.to_string(),
-            source_name: None,
-            source_is_emby: None,
-            target_name: None,
-            target_is_emby: None,
-        });
+        self.sync_logs.insert(
+            0,
+            SyncLogEntry {
+                timestamp,
+                level: level.to_string(),
+                message: msg.to_string(),
+                source_name: None,
+                source_is_emby: None,
+                target_name: None,
+                target_is_emby: None,
+            },
+        );
         if self.sync_logs.len() > 30 {
             self.sync_logs.truncate(30);
         }
@@ -77,17 +80,21 @@ impl AppState {
 pub async fn init_server_cache(name: &str, client: &MediaClient) -> Result<ServerCache> {
     let users = client.get_users().await?;
     let items = client.get_library_items().await?;
-    
+
     let mut imdb_to_id = HashMap::new();
     let mut tmdb_to_id = HashMap::new();
     let mut id_to_providers = HashMap::new();
-    
+
     for (id, (imdb, tmdb)) in items {
-        if !imdb.is_empty() { imdb_to_id.insert(imdb.clone(), id.clone()); }
-        if !tmdb.is_empty() { tmdb_to_id.insert(tmdb.clone(), id.clone()); }
+        if !imdb.is_empty() {
+            imdb_to_id.insert(imdb.clone(), id.clone());
+        }
+        if !tmdb.is_empty() {
+            tmdb_to_id.insert(tmdb.clone(), id.clone());
+        }
         id_to_providers.insert(id, (imdb, tmdb));
     }
-    
+
     Ok(ServerCache {
         name: name.to_string(),
         users,
@@ -152,7 +159,7 @@ mod tests {
         target_users.insert("john".to_string(), "id123".to_string());
         let mapped = find_mapped_user_id("John Doe", &target_users, &[]);
         assert_eq!(mapped, Some("id123".to_string()));
-        
+
         let mut target_users2 = HashMap::new();
         target_users2.insert("john doe".to_string(), "id456".to_string());
         let mapped2 = find_mapped_user_id("john", &target_users2, &[]);

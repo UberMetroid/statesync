@@ -1,29 +1,34 @@
+use futures_util::{SinkExt, StreamExt};
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+use serde_json::json;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use serde_json::json;
 use tokio::sync::{Mutex, broadcast};
-use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessageProto;
-use tracing::{info, warn, error};
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use tracing::{error, info, warn};
 
+use crate::client::{MediaClient, SessionInfo, WsMessage};
 use crate::config::Config;
-use crate::client::{WsMessage, SessionInfo, MediaClient};
 use crate::state::AppState;
 
 pub fn make_ws_url(url: &str, api_key: &str, is_emby: bool) -> String {
     let base = url.trim_end_matches('/');
-    let ws_base = if base.starts_with("https://") { 
-        base.replace("https://", "wss://") 
-    } else if base.starts_with("http://") { 
-        base.replace("http://", "ws://") 
-    } else { 
-        format!("ws://{}", base) 
+    let ws_base = if base.starts_with("https://") {
+        base.replace("https://", "wss://")
+    } else if base.starts_with("http://") {
+        base.replace("http://", "ws://")
+    } else {
+        format!("ws://{}", base)
     };
-    
+
     let encoded_key = utf8_percent_encode(api_key, NON_ALPHANUMERIC).to_string();
-    format!("{}{}?api_key={}&deviceId=statesync", ws_base, if is_emby { "/embywebsocket" } else { "/socket" }, encoded_key)
+    format!(
+        "{}{}?api_key={}&deviceId=statesync",
+        ws_base,
+        if is_emby { "/embywebsocket" } else { "/socket" },
+        encoded_key
+    )
 }
 
 pub async fn handle_websocket_loop(
@@ -38,7 +43,9 @@ pub async fn handle_websocket_loop(
     loop {
         let source_name = {
             let state = state_lock.lock().await;
-            if source_index >= state.caches.len() { return; }
+            if source_index >= state.caches.len() {
+                return;
+            }
             state.caches[source_index].name.clone()
         };
 
@@ -48,16 +55,30 @@ pub async fn handle_websocket_loop(
             source_index < state.caches.len() && state.caches[source_index].users.is_empty()
         };
         if cache_uninitialized {
-            info!("Attempting background cache initialization for '{}'...", source_name);
+            info!(
+                "Attempting background cache initialization for '{}'...",
+                source_name
+            );
             match crate::state::init_server_cache(&source_name, &source_client).await {
                 Ok(cache) => {
                     let mut state = state_lock.lock().await;
-                    if source_index < state.caches.len() { state.caches[source_index] = cache; }
-                    info!("Cache initialized successfully in background for '{}'.", source_name);
-                    state.log_event("success", &format!("Cache initialized for '{}'", source_name));
+                    if source_index < state.caches.len() {
+                        state.caches[source_index] = cache;
+                    }
+                    info!(
+                        "Cache initialized successfully in background for '{}'.",
+                        source_name
+                    );
+                    state.log_event(
+                        "success",
+                        &format!("Cache initialized for '{}'", source_name),
+                    );
                 }
                 Err(e) => {
-                    warn!("Background cache init failed for '{}': {}. Retrying in 10s...", source_name, e);
+                    warn!(
+                        "Background cache init failed for '{}': {}. Retrying in 10s...",
+                        source_name, e
+                    );
                     tokio::select! {
                         _ = shutdown_rx.recv() => return,
                         _ = tokio::time::sleep(Duration::from_secs(10)) => {}
@@ -81,13 +102,20 @@ pub async fn handle_websocket_loop(
             Ok((mut ws_stream, _)) => {
                 info!("'{}' WebSocket connected.", source_name);
                 let mut state = state_lock.lock().await;
-                state.log_event("success", &format!("'{}' WebSocket connected.", source_name));
+                state.log_event(
+                    "success",
+                    &format!("'{}' WebSocket connected.", source_name),
+                );
                 state.websocket_statuses[source_index] = "Connected".to_string();
                 drop(state);
 
-                let start_msg = json!({ "MessageType": "SessionsStart", "Data": "0,1000" }).to_string();
+                let start_msg =
+                    json!({ "MessageType": "SessionsStart", "Data": "0,1000" }).to_string();
                 if let Err(e) = ws_stream.send(WsMessageProto::Text(start_msg.into())).await {
-                    error!("Failed to send subscribe message for '{}': {}", source_name, e);
+                    error!(
+                        "Failed to send subscribe message for '{}': {}",
+                        source_name, e
+                    );
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     continue;
                 }
@@ -128,46 +156,83 @@ pub async fn handle_websocket_loop(
                             if let Ok(ws_msg) = serde_json::from_str::<WsMessage>(&text) {
                                 if ws_msg.message_type == "Sessions" {
                                     if let Some(ref data) = ws_msg.data {
-                                        if let Ok(sessions) = serde_json::from_value::<Vec<SessionInfo>>(data.clone()) {
+                                        if let Ok(sessions) =
+                                            serde_json::from_value::<Vec<SessionInfo>>(data.clone())
+                                        {
                                             let mut missing_users = Vec::new();
                                             {
                                                 let state = state_lock.lock().await;
                                                 for s in &sessions {
                                                     if let Some(user_name) = &s.user_name {
                                                         let user_lower = user_name.to_lowercase();
-                                                        if source_index < state.caches.len() && !state.caches[source_index].users.contains_key(&user_lower) {
+                                                        if source_index < state.caches.len()
+                                                            && !state.caches[source_index]
+                                                                .users
+                                                                .contains_key(&user_lower)
+                                                        {
                                                             missing_users.push(user_name.clone());
                                                         }
                                                     }
                                                 }
                                             }
                                             if !missing_users.is_empty() {
-                                                info!("Detected new users {:?} on '{}'. Hot-reloading user list...", missing_users, source_name);
-                                                if let Ok(new_users) = source_client.get_users().await {
+                                                info!(
+                                                    "Detected new users {:?} on '{}'. Hot-reloading user list...",
+                                                    missing_users, source_name
+                                                );
+                                                if let Ok(new_users) =
+                                                    source_client.get_users().await
+                                                {
                                                     let mut state = state_lock.lock().await;
-                                                    if source_index < state.caches.len() { state.caches[source_index].users = new_users; }
+                                                    if source_index < state.caches.len() {
+                                                        state.caches[source_index].users =
+                                                            new_users;
+                                                    }
                                                 }
                                             }
                                             let mut state = state_lock.lock().await;
-                                            state.active_sessions.retain(|(srv, _), _| srv != &source_name);
+                                            state
+                                                .active_sessions
+                                                .retain(|(srv, _), _| srv != &source_name);
 
                                             for s in &sessions {
-                                                if let (Some(user_name), Some(item), Some(play_state)) = (&s.user_name, &s.now_playing_item, &s.play_state) {
-                                                    let position = play_state.position_ticks.unwrap_or(0);
-                                                    let is_paused = play_state.is_paused.unwrap_or(false);
+                                                if let (
+                                                    Some(user_name),
+                                                    Some(item),
+                                                    Some(play_state),
+                                                ) = (
+                                                    &s.user_name,
+                                                    &s.now_playing_item,
+                                                    &s.play_state,
+                                                ) {
+                                                    let position =
+                                                        play_state.position_ticks.unwrap_or(0);
+                                                    let is_paused =
+                                                        play_state.is_paused.unwrap_or(false);
                                                     let pos_secs = position as f64 / 10_000_000.0;
                                                     state.active_sessions.insert(
                                                         (source_name.clone(), s.id.clone()),
-                                                        (user_name.clone(), item.name.clone().unwrap_or_default(), pos_secs, is_paused, item.id.clone())
+                                                        (
+                                                            user_name.clone(),
+                                                            item.name.clone().unwrap_or_default(),
+                                                            pos_secs,
+                                                            is_paused,
+                                                            item.id.clone(),
+                                                        ),
                                                     );
 
-                                                    if config.servers[source_index].sync_direction == "receive" { continue; }
+                                                    if config.servers[source_index].sync_direction
+                                                        == "receive"
+                                                    {
+                                                        continue;
+                                                    }
 
                                                     let user_name_clone = user_name.clone();
                                                     let item_id_clone = item.id.clone();
                                                     let source_name_clone = source_name.clone();
                                                     let state_lock_clone = state_lock.clone();
-                                                    let target_clients_clone = target_clients.clone();
+                                                    let target_clients_clone =
+                                                        target_clients.clone();
                                                     let config_clone = config.clone();
                                                     let source_client_clone = source_client.clone();
 
@@ -183,7 +248,8 @@ pub async fn handle_websocket_loop(
                                                             &target_clients_clone,
                                                             &config_clone,
                                                             &source_client_clone,
-                                                        ).await;
+                                                        )
+                                                        .await;
                                                     });
                                                 }
                                             }
@@ -192,24 +258,36 @@ pub async fn handle_websocket_loop(
                                 }
                                 if ws_msg.message_type == "UserDataChanged" {
                                     if let Some(ref data) = ws_msg.data {
-                                        if let Ok(info) = serde_json::from_value::<crate::client::UserDataChangedInfo>(data.clone()) {
+                                        if let Ok(info) = serde_json::from_value::<
+                                            crate::client::UserDataChangedInfo,
+                                        >(
+                                            data.clone()
+                                        ) {
                                             let user_name = {
                                                 let state = state_lock.lock().await;
-                                                state.caches[source_index].users.iter()
+                                                state.caches[source_index]
+                                                    .users
+                                                    .iter()
                                                     .find(|(_, id)| *id == &info.user_id)
                                                     .map(|(name, _)| name.clone())
                                             };
                                             if let Some(user_name) = user_name {
                                                 for entry in &info.user_data_list {
-                                                    if config.servers[source_index].sync_direction == "receive" { continue; }
+                                                    if config.servers[source_index].sync_direction
+                                                        == "receive"
+                                                    {
+                                                        continue;
+                                                    }
 
                                                     let user_name_clone = user_name.clone();
                                                     let item_id_clone = entry.item_id.clone();
-                                                    let pos = entry.playback_position_ticks.unwrap_or(0);
+                                                    let pos =
+                                                        entry.playback_position_ticks.unwrap_or(0);
                                                     let played = entry.played;
                                                     let source_name_clone = source_name.clone();
                                                     let state_lock_clone = state_lock.clone();
-                                                    let target_clients_clone = target_clients.clone();
+                                                    let target_clients_clone =
+                                                        target_clients.clone();
                                                     let config_clone = config.clone();
                                                     let source_client_clone = source_client.clone();
 
@@ -225,7 +303,8 @@ pub async fn handle_websocket_loop(
                                                             &target_clients_clone,
                                                             &config_clone,
                                                             &source_client_clone,
-                                                        ).await;
+                                                        )
+                                                        .await;
                                                     });
                                                 }
                                             }
@@ -248,14 +327,23 @@ pub async fn handle_websocket_loop(
                     }
                 }
                 warn!("'{}' WebSocket disconnected. Reconnecting...", source_name);
-                state_lock.lock().await.log_event("warn", &format!("'{}' WebSocket disconnected. Reconnecting...", source_name));
+                state_lock.lock().await.log_event(
+                    "warn",
+                    &format!("'{}' WebSocket disconnected. Reconnecting...", source_name),
+                );
             }
             Err(e) => {
-                error!("Failed to connect to '{}' WebSocket: {}. Retrying in 5 seconds...", source_name, e);
-                state_lock.lock().await.log_event("error", &format!("Failed to connect to '{}' WebSocket: {}", source_name, e));
+                error!(
+                    "Failed to connect to '{}' WebSocket: {}. Retrying in 5 seconds...",
+                    source_name, e
+                );
+                state_lock.lock().await.log_event(
+                    "error",
+                    &format!("Failed to connect to '{}' WebSocket: {}", source_name, e),
+                );
             }
         }
-        
+
         tokio::select! {
             _ = shutdown_rx.recv() => {
                 state_lock.lock().await.websocket_statuses[source_index] = "Offline".to_string();

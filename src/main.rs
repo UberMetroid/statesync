@@ -1,22 +1,28 @@
-mod config;
-mod client;
-mod state;
-mod websocket;
-mod web;
-mod sync;
+#![allow(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::collapsible_if,
+    clippy::single_match
+)]
 
+mod client;
+mod config;
+mod state;
+mod sync;
+mod web;
+mod websocket;
+
+use anyhow::{Context, Result};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc, broadcast};
-use anyhow::{Result, Context};
-use tracing::{info, warn, error};
-use tracing_subscriber;
+use tokio::sync::{Mutex, broadcast, mpsc};
+use tracing::{error, info, warn};
 
-use crate::config::Config;
 use crate::client::MediaClient;
+use crate::config::Config;
 use crate::state::{AppState, init_server_cache};
-use crate::websocket::{make_ws_url, handle_websocket_loop};
 use crate::web::{WebServerState, create_router};
+use crate::websocket::{handle_websocket_loop, make_ws_url};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -37,10 +43,11 @@ async fn main() -> Result<()> {
     let app = create_router(web_state);
 
     // Spawn the HTTP server on port 8754
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8754").await
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8754")
+        .await
         .context("Failed to bind web UI server to port 8754")?;
     info!("Web UI Dashboard listening on http://0.0.0.0:8754");
-    
+
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
             error!("Web server error: {}", e);
@@ -51,11 +58,14 @@ async fn main() -> Result<()> {
     loop {
         info!("Loading configuration...");
         let config_res = Config::load();
-        
+
         let config = match config_res {
             Ok(cfg) => cfg,
             Err(e) => {
-                warn!("Configuration load warning: {}. Web UI is active. Waiting for settings updates...", e);
+                warn!(
+                    "Configuration load warning: {}. Web UI is active. Waiting for settings updates...",
+                    e
+                );
                 // Wait for a reload signal from the Web UI before trying again
                 let _ = reload_rx.recv().await;
                 continue;
@@ -69,23 +79,55 @@ async fn main() -> Result<()> {
         for s in &config.servers {
             {
                 let mut state = app_state.lock().await;
-                state.log_event("info", &format!("Connecting to server '{}' ({})", s.name, s.url));
-                state.log_event("info", &format!("Initializing metadata cache for '{}'...", s.name));
+                state.log_event(
+                    "info",
+                    &format!("Connecting to server '{}' ({})", s.name, s.url),
+                );
+                state.log_event(
+                    "info",
+                    &format!("Initializing metadata cache for '{}'...", s.name),
+                );
             }
             info!("Connecting to server '{}' ({})", s.name, s.url);
-            let client = Arc::new(MediaClient::new(s.url.clone(), s.api_key.clone(), s.is_emby));
-            
+            let client = Arc::new(MediaClient::new(
+                s.url.clone(),
+                s.api_key.clone(),
+                s.is_emby,
+            ));
+
             info!("Initializing metadata cache for '{}'...", s.name);
             match init_server_cache(&s.name, &client).await {
                 Ok(cache) => {
-                    info!("Cache loaded for '{}': {} users, {} matched media items.", s.name, cache.users.len(), cache.id_to_providers.len());
-                    app_state.lock().await.log_event("success", &format!("Cache loaded for '{}': {} users, {} media", s.name, cache.users.len(), cache.id_to_providers.len()));
+                    info!(
+                        "Cache loaded for '{}': {} users, {} matched media items.",
+                        s.name,
+                        cache.users.len(),
+                        cache.id_to_providers.len()
+                    );
+                    app_state.lock().await.log_event(
+                        "success",
+                        &format!(
+                            "Cache loaded for '{}': {} users, {} media",
+                            s.name,
+                            cache.users.len(),
+                            cache.id_to_providers.len()
+                        ),
+                    );
                     clients.push(client);
                     caches.push(cache);
                 }
                 Err(e) => {
-                    warn!("Failed to initialize cache for server '{}' on startup: {}. Retrying in background...", s.name, e);
-                    app_state.lock().await.log_event("warn", &format!("Offline server '{}' on startup. Retrying in background...", s.name));
+                    warn!(
+                        "Failed to initialize cache for server '{}' on startup: {}. Retrying in background...",
+                        s.name, e
+                    );
+                    app_state.lock().await.log_event(
+                        "warn",
+                        &format!(
+                            "Offline server '{}' on startup. Retrying in background...",
+                            s.name
+                        ),
+                    );
                     clients.push(client);
                     caches.push(crate::state::ServerCache {
                         name: s.name.clone(),
@@ -133,7 +175,8 @@ async fn main() -> Result<()> {
                     state_clone,
                     config_clone,
                     shutdown_rx,
-                ).await;
+                )
+                .await;
             });
         }
 
@@ -142,10 +185,10 @@ async fn main() -> Result<()> {
         // Block here until a reload signal is sent from the Web UI
         let _ = reload_rx.recv().await;
         info!("Reload signal received. Shutting down active synchronization loops...");
-        
+
         // Terminate all current websocket tasks
         let _ = shutdown_tx.send(());
-        
+
         // Wait brief moment for threads to wind down
         tokio::time::sleep(Duration::from_millis(500)).await;
     }

@@ -1,6 +1,6 @@
-use std::env;
-use anyhow::{Result, Context, anyhow};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
+use std::env;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerConfig {
@@ -46,13 +46,14 @@ impl Config {
                 let dir_var = format!("STATESYNC_SERVER_{}_DIRECTION", i);
 
                 let name = env::var(&name_var).unwrap_or_else(|_| format!("Server {}", i));
-                let api_key = env::var(&key_var)
-                    .with_context(|| format!("Missing API key environment variable: {}", key_var))?;
-                
+                let api_key = env::var(&key_var).with_context(|| {
+                    format!("Missing API key environment variable: {}", key_var)
+                })?;
+
                 let is_emby = env::var(&type_var)
                     .map(|val| val.to_lowercase() == "emby")
                     .unwrap_or(false);
-                
+
                 let sync_direction = env::var(&dir_var).unwrap_or_else(|_| "both".to_string());
 
                 servers.push(ServerConfig {
@@ -72,15 +73,34 @@ impl Config {
             let jf_url = env::var("STATESYNC_JELLYFIN_URL").ok();
             let jf_key = env::var("STATESYNC_JELLYFIN_API_KEY").ok();
 
-            if let (Some(e_url), Some(e_key), Some(j_url), Some(j_key)) = (emby_url, emby_key, jf_url, jf_key) {
-                servers.push(ServerConfig { name: "Emby".to_string(), url: e_url, api_key: e_key, is_emby: true, sync_direction: "both".to_string() });
-                servers.push(ServerConfig { name: "Jellyfin".to_string(), url: j_url, api_key: j_key, is_emby: false, sync_direction: "both".to_string() });
+            if let (Some(e_url), Some(e_key), Some(j_url), Some(j_key)) =
+                (emby_url, emby_key, jf_url, jf_key)
+            {
+                servers.push(ServerConfig {
+                    name: "Emby".to_string(),
+                    url: e_url,
+                    api_key: e_key,
+                    is_emby: true,
+                    sync_direction: "both".to_string(),
+                });
+                servers.push(ServerConfig {
+                    name: "Jellyfin".to_string(),
+                    url: j_url,
+                    api_key: j_key,
+                    is_emby: false,
+                    sync_direction: "both".to_string(),
+                });
             }
         }
 
         // 3. Fallback to config.json
         if servers.is_empty() {
-            let paths = [get_config_path(), "/etc/statesync/config.json", "/app/config.json", "config.json"];
+            let paths = [
+                get_config_path(),
+                "/etc/statesync/config.json",
+                "/app/config.json",
+                "config.json",
+            ];
             for path in &paths {
                 if std::path::Path::new(path).exists() {
                     let data = std::fs::read_to_string(path)

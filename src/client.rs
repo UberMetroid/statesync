@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use serde::Deserialize;
+use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
-use anyhow::{Result, Context, anyhow};
+use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsMessage {
@@ -85,7 +85,10 @@ impl MediaClient {
         format!("{}{}{}", self.url, prefix, path)
     }
 
-    pub fn add_auth_headers(&self, mut builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    pub fn add_auth_headers(
+        &self,
+        mut builder: reqwest::RequestBuilder,
+    ) -> reqwest::RequestBuilder {
         if self.is_emby {
             builder = builder.header("X-Emby-Token", &self.api_key);
         } else {
@@ -96,19 +99,24 @@ impl MediaClient {
 
     pub async fn get_users(&self) -> Result<HashMap<String, String>> {
         let url = self.url_path("/Users");
-        let resp = self.add_auth_headers(self.client.get(&url))
+        let resp = self
+            .add_auth_headers(self.client.get(&url))
             .send()
             .await
             .context("Failed to get users list")?;
-        
-        let data: serde_json::Value = resp.json()
+
+        let data: serde_json::Value = resp
+            .json()
             .await
             .context("Failed to parse users response")?;
-        
+
         let mut map = HashMap::new();
         if let Some(arr) = data.as_array() {
             for u in arr {
-                if let (Some(name), Some(id)) = (u.get("Name").and_then(|n| n.as_str()), u.get("Id").and_then(|id| id.as_str())) {
+                if let (Some(name), Some(id)) = (
+                    u.get("Name").and_then(|n| n.as_str()),
+                    u.get("Id").and_then(|id| id.as_str()),
+                ) {
                     map.insert(name.to_lowercase(), id.to_string());
                 }
             }
@@ -117,16 +125,19 @@ impl MediaClient {
     }
 
     pub async fn get_library_items(&self) -> Result<HashMap<String, (String, String)>> {
-        let url = self.url_path("/Items?Recursive=true&Fields=ProviderIds&IncludeItemTypes=Movie,Episode");
-        let resp = self.add_auth_headers(self.client.get(&url))
+        let url = self
+            .url_path("/Items?Recursive=true&Fields=ProviderIds&IncludeItemTypes=Movie,Episode");
+        let resp = self
+            .add_auth_headers(self.client.get(&url))
             .send()
             .await
             .context("Failed to get library items")?;
-        
-        let data: serde_json::Value = resp.json()
+
+        let data: serde_json::Value = resp
+            .json()
             .await
             .context("Failed to parse library response")?;
-        
+
         let mut map = HashMap::new();
         if let Some(arr) = data.get("Items").and_then(|i| i.as_array()) {
             for item in arr {
@@ -134,8 +145,12 @@ impl MediaClient {
                     let mut imdb = String::new();
                     let mut tmdb = String::new();
                     if let Some(providers) = item.get("ProviderIds") {
-                        if let Some(val) = providers.get("Imdb").and_then(|v| v.as_str()) { imdb = val.to_string(); }
-                        if let Some(val) = providers.get("Tmdb").and_then(|v| v.as_str()) { tmdb = val.to_string(); }
+                        if let Some(val) = providers.get("Imdb").and_then(|v| v.as_str()) {
+                            imdb = val.to_string();
+                        }
+                        if let Some(val) = providers.get("Tmdb").and_then(|v| v.as_str()) {
+                            tmdb = val.to_string();
+                        }
                     }
                     map.insert(id.to_string(), (imdb, tmdb));
                 }
@@ -144,28 +159,40 @@ impl MediaClient {
         Ok(map)
     }
 
-    pub async fn get_item_providers(&self, user_id: &str, item_id: &str) -> Result<(String, String)> {
+    pub async fn get_item_providers(
+        &self,
+        user_id: &str,
+        item_id: &str,
+    ) -> Result<(String, String)> {
         let path = format!("/Users/{}/Items/{}", user_id, item_id);
         let url = self.url_path(&path);
-        let resp = self.add_auth_headers(self.client.get(&url))
+        let resp = self
+            .add_auth_headers(self.client.get(&url))
             .send()
             .await
             .context("Failed to get item details")?;
-        
-        let data: serde_json::Value = resp.json()
-            .await
-            .context("Failed to parse item response")?;
-        
+
+        let data: serde_json::Value = resp.json().await.context("Failed to parse item response")?;
+
         let mut imdb = String::new();
         let mut tmdb = String::new();
         if let Some(providers) = data.get("ProviderIds") {
-            if let Some(val) = providers.get("Imdb").and_then(|v| v.as_str()) { imdb = val.to_string(); }
-            if let Some(val) = providers.get("Tmdb").and_then(|v| v.as_str()) { tmdb = val.to_string(); }
+            if let Some(val) = providers.get("Imdb").and_then(|v| v.as_str()) {
+                imdb = val.to_string();
+            }
+            if let Some(val) = providers.get("Tmdb").and_then(|v| v.as_str()) {
+                tmdb = val.to_string();
+            }
         }
         Ok((imdb, tmdb))
     }
 
-    pub async fn find_item_by_provider(&self, user_id: &str, imdb_id: &str, tmdb_id: &str) -> Result<Option<(String, String, String)>> {
+    pub async fn find_item_by_provider(
+        &self,
+        user_id: &str,
+        imdb_id: &str,
+        tmdb_id: &str,
+    ) -> Result<Option<(String, String, String)>> {
         let mut path = format!("/Users/{}/Items?Recursive=true&Fields=ProviderIds", user_id);
         if !imdb_id.is_empty() {
             path.push_str(&format!("&AnyProviderIdTypes=Imdb&ProviderIds={}", imdb_id));
@@ -176,12 +203,14 @@ impl MediaClient {
         }
 
         let url = self.url_path(&path);
-        let resp = self.add_auth_headers(self.client.get(&url))
+        let resp = self
+            .add_auth_headers(self.client.get(&url))
             .send()
             .await
             .context("Failed to search item by provider ID")?;
 
-        let data: serde_json::Value = resp.json()
+        let data: serde_json::Value = resp
+            .json()
             .await
             .context("Failed to parse search response")?;
 
@@ -191,8 +220,12 @@ impl MediaClient {
                     let mut imdb = String::new();
                     let mut tmdb = String::new();
                     if let Some(providers) = item.get("ProviderIds") {
-                        if let Some(val) = providers.get("Imdb").and_then(|v| v.as_str()) { imdb = val.to_string(); }
-                        if let Some(val) = providers.get("Tmdb").and_then(|v| v.as_str()) { tmdb = val.to_string(); }
+                        if let Some(val) = providers.get("Imdb").and_then(|v| v.as_str()) {
+                            imdb = val.to_string();
+                        }
+                        if let Some(val) = providers.get("Tmdb").and_then(|v| v.as_str()) {
+                            tmdb = val.to_string();
+                        }
                     }
                     return Ok(Some((id.to_string(), imdb, tmdb)));
                 }
@@ -201,23 +234,34 @@ impl MediaClient {
         Ok(None)
     }
 
-    pub async fn update_progress(&self, user_id: &str, item_id: &str, position_ticks: i64, played: bool) -> Result<()> {
+    pub async fn update_progress(
+        &self,
+        user_id: &str,
+        item_id: &str,
+        position_ticks: i64,
+        played: bool,
+    ) -> Result<()> {
         let path = format!("/Users/{}/Items/{}/UserData", user_id, item_id);
         let url = self.url_path(&path);
         let body = serde_json::json!({
             "PlaybackPositionTicks": position_ticks,
             "Played": played,
         });
-        
-        let resp = self.add_auth_headers(self.client.post(&url))
+
+        let resp = self
+            .add_auth_headers(self.client.post(&url))
             .json(&body)
             .send()
             .await
             .context("Failed to send UserData progress update request")?;
-        
+
         if !resp.status().is_success() {
             let body_text = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("UserData progress update failed: {} - {}", url, body_text));
+            return Err(anyhow!(
+                "UserData progress update failed: {} - {}",
+                url,
+                body_text
+            ));
         }
         Ok(())
     }
