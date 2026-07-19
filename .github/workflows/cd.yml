@@ -68,7 +68,7 @@ jobs:
           sbom-path: ${{ steps.build.outputs.sbomPath }}
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: ${{ steps.build.outputs.imageName }}
           format: sarif
