@@ -2,33 +2,40 @@
 # Entrypoint for the statesync container.
 #
 # Runs as root (Docker default for ENTRYPOINT).
-#  1. Best-effort chown of /config and /app to nobody:nogroup so the
-#     daemon (which we drop to nobody below) can write to them. Fails
-#     silently on read-only mounts; the daemon handles that gracefully.
-#  2. Execs the daemon as nobody:nogroup via su-exec.
+#  1. Applies the user-configured UMASK
+#  2. Chowns /config and /app to PUID:PGID (default 99:100, Unraid's
+#     'nobody' user). Fails silently on read-only mounts; the daemon
+#     falls back to /app/config.json in that case.
+#  3. Execs the daemon as PUID:PGID via su-exec.
 #
-# About the user:
-#   Alpine's /etc/passwd has:  nobody:x:65534:65534:nobody:/:/sbin/nologin
-#   So inside the container, `ls -l` shows owner `nobody` (uid 65534).
-#   If you see the bare numeric `65534` in some other view, that's
-#   because that view is consulting the host's /etc/passwd (where the
-#   same uid 65534 typically also maps to nobody). 65534 IS nobody;
-#   it's the same user, just shown numerically.
+# About PUID/PGID/UMASK:
+#   These are the standard Unraid community-app variables (used by
+#   binhex-syncthing, glances, ollama, etc.). On Unraid, PUID=99 is
+#   the 'nobody' user; setting PUID=99 makes the appdata dir show
+#   as 'nobody' in the Unraid file manager instead of as a bare
+#   numeric uid.
 #
 # su-exec is ~10KB of C that does the standard "drop privs and exec"
 # pattern without the overhead of bash function spawning.
 
 set -e
 
-# Chown the persistent volume and workdir to nobody. If /config is
-# read-only (host bind-mount with restrictive perms), chown fails
-# and the daemon falls back to /app/config.json (see config.rs).
-chown -R nobody:nogroup /config 2>/dev/null || true
-chown -R nobody:nogroup /app 2>/dev/null || true
+PUID=${PUID:-99}
+PGID=${PGID:-100}
+UMASK=${UMASK:-022}
 
-# Make sure the daemon binary is executable by nobody.
+# Apply umask so any files created later (logs, atomic-write temp
+# files) have the right default permissions.
+umask "$UMASK"
+
+# Chown the persistent volume and workdir to the configured uid.
+# If /config is read-only (host bind-mount with restrictive perms),
+# chown fails and the daemon falls back to /app/config.json.
+chown -R "$PUID:$PGID" /config 2>/dev/null || true
+chown -R "$PUID:$PGID" /app 2>/dev/null || true
+
+# Make sure the daemon binary is executable by the configured uid.
 chmod +x /usr/local/bin/statesync
 
-# Drop to nobody and exec. su-exec ensures a clean transition with no
-# bash subshell or signal-forwarding issues.
-exec su-exec nobody:nogroup /usr/local/bin/statesync "$@"
+# Drop to the configured uid and exec.
+exec su-exec "$PUID:$PGID" /usr/local/bin/statesync "$@"

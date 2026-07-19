@@ -23,7 +23,7 @@
 
 Open the web UI on port 8754 after install to add servers. API keys are stored in the config volume and masked in the UI.
 
-The container runs as the system 'nobody' user (uid 65534) — Unraid's appdata convention. If you see files owned by 65534 instead of 'nobody' in some views, that's the same user; the view is consulting the host's /etc/passwd.
+Standard Unraid PUID/PGID/UMASK variables are honored. Defaults (99/100/022) match the 'nobody' user used by other community apps (binhex-syncthing, glances, ollama, etc.) so the appdata dir shows as 'nobody' in the Unraid file manager. Change PUID/PGID to run as a different user if you prefer.
 
 Use the REFRESH and FORCE SYNC buttons in the dashboard (top of the MAPPED USERS section) to manually reload the user list or push all historical played state across servers.</Description>
 
@@ -40,7 +40,7 @@ Use the REFRESH and FORCE SYNC buttons in the dashboard (top of the MAPPED USERS
   <Config Name="Web UI Port" Target="8754" Default="8754" Mode="tcp" Description="Port the dashboard listens on. Open this in your browser after the container starts." Type="Port" Display="always" Required="true" Mask="false"/>
 
   <!-- Where config.json (and your server list / API keys) live. -->
-  <Config Name="Config Volume" Target="/config" Default="/mnt/user/appdata/statesync" Mode="rw" Description="Folder on the array where config.json is stored. Persists across container updates. The entrypoint chowns this folder to nobody on first start." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Config Volume" Target="/config" Default="/mnt/user/appdata/statesync" Mode="rw" Description="Folder on the array where config.json is stored. Persists across container updates. Owned by PUID:PGID (default nobody:users)." Type="Path" Display="always" Required="true" Mask="false"/>
 
   <!-- ============================================================ -->
   <!-- Common settings (always visible, sensible defaults) -->
@@ -48,6 +48,14 @@ Use the REFRESH and FORCE SYNC buttons in the dashboard (top of the MAPPED USERS
 
   <!-- Affects log timestamps only. Has no effect on sync behavior. -->
   <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="Your local timezone, e.g. America/New_York or Europe/Berlin. Used only for log timestamps." Type="Variable" Display="always" Required="false" Mask="false"/>
+
+  <!-- ============================================================ -->
+  <!-- User/permission settings (Unraid community-app convention) -->
+  <!-- ============================================================ -->
+
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for the running container. Default 99 (Unraid's 'nobody'). Files created by the daemon will be owned by this uid." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for the running container. Default 100 (Unraid's 'users' group)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="UMASK" Target="UMASK" Default="022" Mode="" Description="UMASK for the running container. Default 022. Use 000 for group-writable configs (matches binhex-syncthing's permissive perms)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
   <!-- ============================================================ -->
   <!-- Advanced settings (hidden by default; click 'Advanced View') -->
@@ -61,6 +69,6 @@ Use the REFRESH and FORCE SYNC buttons in the dashboard (top of the MAPPED USERS
   <Config Name="Allow HTTP to Servers" Target="STATESYNC_ALLOW_INSECURE_HTTP" Default="true" Mode="" Description="Allow plain http:// URLs when talking to your Emby/Jellyfin servers. Default true (LAN-friendly). Set false if your servers use HTTPS." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
   <!-- Optional bearer-token auth. Leave blank for open LAN access. -->
-  <Config Name="Dashboard Password" Target="STATESYNC_WEB_AUTH" Default="" Mode="" Description="OPTIONAL. Leave blank to let anyone on your LAN use the dashboard. To require a password, paste a token in the format: bearer:YOURTOKEN (generate with: openssl rand -hex 32)" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Dashboard Password" Target="STATESYNC_WEB_AUTH" Default="" Mode="" Description="OPTIONAL. Leave blank to let anyone on your LAN use the dashboard. To require a password, paste a token in the format: bearer:YOURTOKEN (generate with: openssl rand -hex 32)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
 </Container>
