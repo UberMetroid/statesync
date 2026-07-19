@@ -21,10 +21,27 @@ use tokio::sync::{Mutex, broadcast, mpsc};
 use tracing::{error, info, warn};
 
 use crate::client::MediaClient;
-use crate::config::Config;
+use crate::config::{Config, is_loopback_bind, redacted_url};
 use crate::state::{AppState, init_server_cache};
 use crate::web::{WebServerState, create_router};
 use crate::websocket::{handle_websocket_loop, make_ws_url};
+
+const DEFAULT_BIND: &str = "127.0.0.1:8754";
+
+fn resolve_bind_addr() -> String {
+    std::env::var("STATESYNC_BIND").unwrap_or_else(|_| DEFAULT_BIND.to_string())
+}
+
+fn resolve_web_auth() -> Option<String> {
+    std::env::var("STATESYNC_WEB_AUTH").ok().and_then(|v| {
+        let v = v.trim().to_string();
+        if v.is_empty() || v.eq_ignore_ascii_case("none") {
+            None
+        } else {
+            Some(v)
+        }
+    })
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -63,6 +80,18 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     info!("Starting statesync Sidecar...");
 
+    let bind_addr = resolve_bind_addr();
+    let web_auth = resolve_web_auth();
+
+    if !is_loopback_bind(&bind_addr) && web_auth.is_none() {
+        eprintln!(
+            "Refusing to start: bind address '{}' is not loopback and no STATESYNC_WEB_AUTH is configured.",
+            bind_addr
+        );
+        eprintln!("Set STATESYNC_WEB_AUTH=bearer:<token> or bind to 127.0.0.1 (the default).");
+        std::process::exit(2);
+    }
+
     // Shared thread-safe state container. Starts empty.
     let app_state = Arc::new(Mutex::new(AppState::new(vec![])));
 
@@ -73,15 +102,27 @@ async fn main() -> Result<()> {
     let web_state = Arc::new(WebServerState {
         app_state: app_state.clone(),
         reload_tx: reload_tx.clone(),
+        bind_addr: bind_addr.clone(),
+        web_auth: web_auth.clone(),
     });
     let app = create_router(web_state);
 
-    // Spawn the HTTP server on port 8754
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8754")
+    // Spawn the HTTP server
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
-        .context("Failed to bind web UI server to port 8754")?;
+        .with_context(|| format!("Failed to bind web UI server to {}", bind_addr))?;
 
-    info!("Web UI Dashboard listening on http://0.0.0.0:8754");
+    if web_auth.is_some() {
+        info!(
+            "Web UI Dashboard listening on http://{} (auth required)",
+            bind_addr
+        );
+    } else {
+        info!(
+            "Web UI Dashboard listening on http://{} (loopback only)",
+            bind_addr
+        );
+    }
 
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
@@ -107,6 +148,15 @@ async fn main() -> Result<()> {
             }
         };
 
+        for s in &config.servers {
+            if s.url.starts_with("http://") && !s.allow_insecure_http {
+                warn!(
+                    "Server '{}' is using plaintext HTTP; consider HTTPS to protect API keys in transit.",
+                    s.name
+                );
+            }
+        }
+
         let mut clients = Vec::new();
         let mut caches = Vec::new();
 
@@ -116,14 +166,22 @@ async fn main() -> Result<()> {
                 let mut state = app_state.lock().await;
                 state.log_event(
                     "info",
-                    &format!("Connecting to server '{}' ({})", s.name, s.url),
+                    &format!(
+                        "Connecting to server '{}' ({})",
+                        s.name,
+                        redacted_url(&s.url)
+                    ),
                 );
                 state.log_event(
                     "info",
                     &format!("Initializing metadata cache for '{}'...", s.name),
                 );
             }
-            info!("Connecting to server '{}' ({})", s.name, s.url);
+            info!(
+                "Connecting to server '{}' ({})",
+                s.name,
+                redacted_url(&s.url)
+            );
             info!("Initializing metadata cache for '{}'...", s.name);
             let client = Arc::new(MediaClient::new(
                 s.url.clone(),
@@ -189,6 +247,12 @@ async fn main() -> Result<()> {
         // Spawn websocket connection loops
         for (i, s) in config.servers.iter().enumerate() {
             let ws_url = make_ws_url(&s.url, &s.api_key, s.is_emby);
+            if ws_url.starts_with("ws://") {
+                warn!(
+                    "Server '{}' WebSocket URL is plaintext (ws://); consider HTTPS.",
+                    s.name
+                );
+            }
             let state_clone = app_state.clone();
             let config_clone = config.clone();
             let shutdown_rx = shutdown_tx.subscribe();
@@ -239,6 +303,20 @@ fn print_help() {
     println!("  --validate       Validate config.json and test server connections");
     println!("  --reload         Trigger reload of config.json on the running service");
     println!("  --tui            Launch the interactive terminal dashboard");
+    println!();
+    println!("Environment Variables:");
+    println!("  STATESYNC_BIND                 Listen address (default: 127.0.0.1:8754)");
+    println!(
+        "                                  Refuses non-loopback binds without STATESYNC_WEB_AUTH."
+    );
+    println!("  STATESYNC_WEB_AUTH             'bearer:<token>' required for non-loopback binds.");
+    println!(
+        "  STATESYNC_ALLOW_INSECURE_HTTP  Set 'true' to permit http:// URLs to upstream servers."
+    );
+    println!("  STATESYNC_SERVER_<N>_*         Per-server env-var config (see README).");
+    println!("  STATESYNC_SYNC_THRESHOLD_SECONDS   Sync threshold (default 5).");
+    println!("  RUST_LOG                       tracing log filter (default: info).");
+    println!("  TZ                             Container timezone.");
 }
 
 async fn trigger_reload() -> Result<()> {

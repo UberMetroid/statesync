@@ -115,6 +115,21 @@ pub fn render_dashboard() -> Markup {
                     }
                 }
                 div class="toast" id="toast" {}
+                div class="modal" id="authModal" style="display:none" {
+                    div class="modal-content" {
+                        h2 { "[ AUTHENTICATION REQUIRED ]" }
+                        p style="color: var(--text); font-size: 12px; margin-bottom: 12px;" {
+                            "This dashboard is protected. Enter the bearer token configured on the server."
+                        }
+                        div class="form-group" {
+                            label { "BEARER TOKEN" }
+                            input type="password" id="authToken" autocomplete="off" {}
+                        }
+                        div style="display:flex;justify-content:flex-end;margin-top:20px;gap:12px" {
+                            button class="btn btn-accent" id="authSubmitBtn" { "[ UNLOCK ]" }
+                        }
+                    }
+                }
                 script {
                     (maud::PreEscaped(include_str!("index.js")))
                 }

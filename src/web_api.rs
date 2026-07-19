@@ -8,8 +8,12 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::client::MediaClient;
-use crate::config::Config;
+use crate::config::{Config, validate_config};
 use crate::web::WebServerState;
+
+const ITEM_ID_RE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
+const MAX_ITEM_ID_LEN: usize = 64;
+const MAX_SERVER_NAME_LEN: usize = 64;
 
 #[derive(Debug, Deserialize)]
 pub struct TestConnRequest {
@@ -58,12 +62,21 @@ pub async fn post_config(
         }
     }
 
+    if let Err(_e) = validate_config(&new_config) {
+        return Json(json!({ "status": "error", "message": "Invalid configuration" }));
+    }
+
     let path = crate::config::get_config_path();
-    let serialized = serde_json::to_string_pretty(&new_config).unwrap_or_default();
-    if let Err(e) = std::fs::write(path, serialized) {
-        return Json(
-            json!({ "status": "error", "message": format!("Failed to save config: {}", e) }),
-        );
+    let serialized = match serde_json::to_string_pretty(&new_config) {
+        Ok(s) => s,
+        Err(_) => {
+            return Json(
+                json!({ "status": "error", "message": "Failed to serialize configuration" }),
+            );
+        }
+    };
+    if std::fs::write(path, serialized).is_err() {
+        return Json(json!({ "status": "error", "message": "Failed to write configuration file" }));
     }
 
     let _ = state.reload_tx.send(()).await;
@@ -71,17 +84,41 @@ pub async fn post_config(
 }
 
 pub async fn test_connection(Json(req): Json<TestConnRequest>) -> Json<serde_json::Value> {
+    if req.url.len() > 512 || !(req.url.starts_with("http://") || req.url.starts_with("https://")) {
+        return Json(json!({
+            "status": "error",
+            "message": "Invalid URL (must be http(s):// and <= 512 chars)"
+        }));
+    }
+    if req.api_key.len() > 256 {
+        return Json(json!({
+            "status": "error",
+            "message": "API key too long"
+        }));
+    }
     let client = MediaClient::new(req.url, req.api_key, req.is_emby);
     match client.get_users().await {
         Ok(users) => Json(json!({
             "status": "ok",
             "message": format!("Success! Connected to server and found {} users.", users.len())
         })),
-        Err(e) => Json(json!({
+        Err(_) => Json(json!({
             "status": "error",
-            "message": format!("Connection failed: {}", e)
+            "message": "Connection failed (see server logs for details)"
         })),
     }
+}
+
+fn valid_item_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= MAX_ITEM_ID_LEN && id.bytes().all(|b| ITEM_ID_RE.contains(&b))
+}
+
+fn valid_server_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_SERVER_NAME_LEN
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
 }
 
 pub async fn serve_poster(
@@ -90,6 +127,14 @@ pub async fn serve_poster(
 ) -> impl IntoResponse {
     let server_name = params.get("server").cloned().unwrap_or_default();
     let item_id = params.get("item_id").cloned().unwrap_or_default();
+
+    if !valid_server_name(&server_name) || !valid_item_id(&item_id) {
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::from("Bad Request"))
+            .unwrap();
+    }
+
     let config = match Config::load() {
         Ok(cfg) => cfg,
         Err(_) => {
@@ -118,8 +163,8 @@ pub async fn serve_poster(
     let url = client.url_path(&path);
     let builder = client.add_auth_headers(client.client.get(&url));
 
-    match builder.send().await {
-        Ok(resp) => {
+    match tokio::time::timeout(std::time::Duration::from_secs(10), builder.send()).await {
+        Ok(Ok(resp)) => {
             let content_type = resp
                 .headers()
                 .get("content-type")
@@ -135,7 +180,7 @@ pub async fn serve_poster(
                 return res;
             }
         }
-        Err(_) => {}
+        Ok(Err(_)) | Err(_) => {}
     }
     Response::builder()
         .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -146,7 +191,22 @@ pub async fn serve_poster(
 pub async fn get_status(
     Extension(state): Extension<Arc<WebServerState>>,
 ) -> Json<serde_json::Value> {
+    use crate::config::redacted_url;
     let app_state = state.app_state.lock().await;
+    let config = Config::load().unwrap_or_else(|_| Config {
+        servers: vec![],
+        sync_threshold_seconds: 5,
+        user_mappings: vec![],
+    });
+    let redacted_url_for = |name: &str| -> String {
+        config
+            .servers
+            .iter()
+            .find(|s| s.name == name)
+            .map(|s| redacted_url(&s.url))
+            .unwrap_or_default()
+    };
+
     let mut servers_status = Vec::new();
     for (i, cache) in app_state.caches.iter().enumerate() {
         let ws_status = app_state
@@ -156,8 +216,8 @@ pub async fn get_status(
             .unwrap_or_else(|| "Offline".to_string());
         servers_status.push(json!({
             "name": cache.name,
+            "url": redacted_url_for(&cache.name),
             "users_count": cache.users.len(),
-            "users": cache.users.keys().cloned().collect::<Vec<String>>(),
             "media_count": cache.id_to_providers.len(),
             "websocket_status": ws_status
         }));
@@ -174,11 +234,6 @@ pub async fn get_status(
             group[srv_idx] = Some(username.clone());
             processed.push((srv_idx, username.clone()));
             let mut has_any_match = false;
-            let config = Config::load().unwrap_or_else(|_| Config {
-                servers: Vec::new(),
-                sync_threshold_seconds: 5,
-                user_mappings: Vec::new(),
-            });
             for (other_idx, other_cache) in app_state.caches.iter().enumerate() {
                 if other_idx == srv_idx {
                     continue;
@@ -224,12 +279,28 @@ pub async fn get_status(
         }));
     }
 
+    let public_logs: Vec<_> = app_state
+        .sync_logs
+        .iter()
+        .map(|log| {
+            json!({
+                "timestamp": log.timestamp,
+                "level": log.level,
+                "message": log.message,
+                "source_name": log.source_name,
+                "source_is_emby": log.source_is_emby,
+                "target_name": log.target_name,
+                "target_is_emby": log.target_is_emby,
+            })
+        })
+        .collect();
+
     Json(json!({
         "status": "active",
         "servers": servers_status,
         "mapped_users": mapped_users,
         "active_sessions": active_sessions,
-        "sync_logs": app_state.sync_logs
+        "sync_logs": public_logs
     }))
 }
 
@@ -258,5 +329,23 @@ mod tests {
         assert_eq!(mask_api_key("12345678"), "••••••••");
         assert_eq!(mask_api_key("123456789"), "1234••••••••6789");
         assert_eq!(mask_api_key("my_secret_token_1234"), "my_s••••••••1234");
+    }
+
+    #[test]
+    fn test_valid_item_id() {
+        assert!(valid_item_id("abc123XYZ_-"));
+        assert!(!valid_item_id(""));
+        assert!(!valid_item_id("../etc/passwd"));
+        assert!(!valid_item_id("a b"));
+        assert!(!valid_item_id(&"a".repeat(MAX_ITEM_ID_LEN + 1)));
+    }
+
+    #[test]
+    fn test_valid_server_name() {
+        assert!(valid_server_name("green"));
+        assert!(valid_server_name("my-server_01.local"));
+        assert!(!valid_server_name(""));
+        assert!(!valid_server_name("../etc"));
+        assert!(!valid_server_name("name with space"));
     }
 }

@@ -1,10 +1,38 @@
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
 const $ = id => document.getElementById(id);
 let currentConfig = { servers: [], sync_threshold_seconds: 5 }; let editIndex = -1;
+const AUTH_TOKEN_KEY = 'statesync-auth-token';
+function getAuthHeaders() {
+  const t = localStorage.getItem(AUTH_TOKEN_KEY);
+  return t ? { 'Authorization': 'Bearer ' + t } : {};
+}
+async function authedFetch(url, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers || {}, getAuthHeaders());
+  const r = await fetch(url, opts);
+  if (r.status === 401) { showAuthModal(); throw new Error('unauthorized'); }
+  return r;
+}
+function showAuthModal() {
+  const m = $('authModal'); if (m) m.style.display = 'flex';
+}
+function hideAuthModal() {
+  const m = $('authModal'); if (m) m.style.display = 'none';
+}
+function submitAuth() {
+  const t = $('authToken').value.trim();
+  if (!t) return;
+  localStorage.setItem(AUTH_TOKEN_KEY, t);
+  hideAuthModal();
+  loadDashboard();
+}
 function setTheme(n) { document.body.className = n === 'cyberpunk' ? '' : `theme-${n}`; localStorage.setItem('hud-theme', n); }
 async function loadDashboard() {
   try {
-    const [configRes, statusRes] = await Promise.all([fetch('/api/config'), fetch('/api/status')]);
+    const [configRes, statusRes] = await Promise.all([
+      authedFetch('/api/config'),
+      authedFetch('/api/status')
+    ]);
     currentConfig = await configRes.json(); const status = await statusRes.json();
     $('syncThreshold').value = currentConfig.sync_threshold_seconds;
     $('cfgUserMappings').value = (currentConfig.user_mappings || []).map(group => group.join(', ')).join('\n');
@@ -28,7 +56,8 @@ async function loadDashboard() {
         const sStatus = status.servers.find(s => s.name === srv.name) || { users_count: 0, media_count: 0, websocket_status: 'Offline' };
         const row = document.createElement('div'); row.className = 'server-row';
         const dirBadge = srv.sync_direction === 'send' ? ' [SEND ONLY]' : (srv.sync_direction === 'receive' ? ' [RCV ONLY]' : '');
-        row.innerHTML = `<div class="server-info"><span class="status-${sStatus.websocket_status}">[ ${sStatus.websocket_status.toUpperCase()} ]</span><div><span style="font-weight:600;color:#fff">${srv.name}</span> <span class="badge">${srv.is_emby ? 'EMBY' : 'JELLYFIN'}${dirBadge}</span><div style="font-size:11px;color:var(--text);margin-top:2px">${srv.url}</div></div></div><div class="server-info"><span style="font-size:12px">${sStatus.users_count} USERS | ${sStatus.media_count} CACHED</span><button class="btn" onclick="openServerModal(${idx})">[ EDIT ]</button><button class="btn btn-danger" onclick="deleteServer(${idx})">[ WIPE ]</button></div>`;
+        const urlText = (status.servers.find(s => s.name === srv.name) || {}).url || srv.url;
+        row.innerHTML = `<div class="server-info"><span class="status-${sStatus.websocket_status}">[ ${sStatus.websocket_status.toUpperCase()} ]</span><div><span style="font-weight:600;color:#fff">${srv.name}</span> <span class="badge">${srv.is_emby ? 'EMBY' : 'JELLYFIN'}${dirBadge}</span><div style="font-size:11px;color:var(--text);margin-top:2px">${urlText}</div></div></div><div class="server-info"><span style="font-size:12px">${sStatus.users_count} USERS | ${sStatus.media_count} CACHED</span><button class="btn" onclick="openServerModal(${idx})">[ EDIT ]</button><button class="btn btn-danger" onclick="deleteServer(${idx})">[ WIPE ]</button></div>`;
         listDiv.appendChild(row);
       });
     }
@@ -129,12 +158,12 @@ function testConnection() {
   const type = $('serverType').value, url = $('serverUrl').value, api_key = $('serverKey').value;
   if (!url || !api_key) return showToast('LINK DATA INCOMPLETE');
   showToast('PINGING LINK ADDRESS...');
-  fetch('/api/test_connection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, api_key, is_emby: type === 'emby' }) })
+  authedFetch('/api/test_connection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, api_key, is_emby: type === 'emby' }) })
     .then(async r => showToast((await r.json()).message.toUpperCase())).catch(() => showToast('LINK RESPONSE FAILED'));
 }
 $('serverForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const s = { name: $('serverName').value, url: $('serverUrl').value, api_key: $('serverKey').value, is_emby: $('serverType').value === 'emby', sync_direction: $('serverDirection').value };
+  const s = { name: $('serverName').value, url: $('serverUrl').value, api_key: $('serverKey').value, is_emby: $('serverType').value === 'emby', sync_direction: $('serverDirection').value, allow_insecure_http: $('serverUrl').value.startsWith('http://') };
   if (editIndex === -1) { currentConfig.servers.push(s); } else { currentConfig.servers[editIndex] = s; }
   closeModal('serverModal'); await saveConfig();
 });
@@ -153,9 +182,21 @@ async function saveSettings() {
 }
 async function saveConfig() {
   try {
-    const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentConfig) });
+    const res = await authedFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentConfig) });
     showToast((await res.json()).message.toUpperCase()); setTimeout(loadDashboard, 1200);
   } catch (err) { showToast('WRITE CONFIG FAILED'); }
 }
 function showToast(msg) { const toast = $('toast'); toast.innerText = `> ${msg}`; toast.style.display = 'block'; setTimeout(() => { toast.style.display = 'none'; }, 4000); }
-const savedTheme = localStorage.getItem('hud-theme') || 'cyberpunk'; setTheme(savedTheme); $('themeSelector').value = savedTheme; loadDashboard(); setInterval(loadDashboard, 3000);
+const savedTheme = localStorage.getItem('hud-theme') || 'cyberpunk'; setTheme(savedTheme); $('themeSelector').value = savedTheme;
+document.addEventListener('DOMContentLoaded', () => {
+  const b = $('authSubmitBtn'); if (b) b.addEventListener('click', submitAuth);
+  const t = $('authToken'); if (t) t.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
+  loadDashboard();
+  setInterval(loadDashboard, 3000);
+});
+if (document.readyState !== 'loading') {
+  const b = $('authSubmitBtn'); if (b) b.addEventListener('click', submitAuth);
+  const t = $('authToken'); if (t) t.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
+  loadDashboard();
+  setInterval(loadDashboard, 3000);
+}

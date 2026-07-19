@@ -2,14 +2,17 @@ version: '3.8'
 
 services:
   statesync:
-    build:
-      context: ..
-      dockerfile: container/Dockerfile
+    image: ghcr.io/ubermetroid/statesync:latest
     container_name: statesync
     restart: unless-stopped
+    # Loopback-only by default. If you need LAN access, change to "0.0.0.0:8754:8754"
+    # and set STATESYNC_WEB_AUTH=bearer:<token>. See README for details.
     ports:
-      - "8754:8754"
+      - "127.0.0.1:8754:8754"
     volumes:
-      - ../config:/config
+      - ./config:/config
     environment:
       - RUST_LOG=info
+      - TZ=UTC
+      # - STATESYNC_BIND=0.0.0.0:8754
+      # - STATESYNC_WEB_AUTH=bearer:replace-with-`openssl rand -hex 32`

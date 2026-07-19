@@ -1,2 +1,8 @@
 /target
 /watchparty
+
+# Configuration files containing API keys - never commit secrets.
+config.json
+/config/config.json
+/etc/statesync/config.json
+/app/config.json

@@ -1,0 +1,20 @@
+{
+  "servers": [
+    {
+      "name": "emby-server",
+      "url": "https://emby.example.com:8096",
+      "api_key": "REPLACE_WITH_YOUR_EMBY_API_KEY",
+      "is_emby": true,
+      "sync_direction": "both"
+    },
+    {
+      "name": "jellyfin-server",
+      "url": "https://jellyfin.example.com:8096",
+      "api_key": "REPLACE_WITH_YOUR_JELLYFIN_API_KEY",
+      "is_emby": false,
+      "sync_direction": "both"
+    }
+  ],
+  "sync_threshold_seconds": 5,
+  "user_mappings": []
+}

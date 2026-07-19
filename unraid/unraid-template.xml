@@ -8,17 +8,21 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/UberMetroid/statesync/issues</Support>
   <Project>https://github.com/UberMetroid/statesync</Project>
-  <Overview>Lightweight, Alpine-based container providing a real-time playstate sync bridge between your Emby and Jellyfin servers with a Web UI dashboard on port 8754.</Overview>
+  <Overview>Lightweight, Alpine-based container providing a real-time playstate sync bridge between your Emby and Jellyfin servers with a Web UI dashboard on port 8754. By default the web UI binds to loopback only; expose it via a reverse proxy or set STATESYNC_BIND + STATESYNC_WEB_AUTH for direct LAN access.</Overview>
   <Category>MediaApp:Video MediaApp:Other</Category>
   <Icon>https://raw.githubusercontent.com/UberMetroid/statesync/master/graphics/statesync_icon.jpg</Icon>
   <WebUI>http://[IP]:[PORT:8754]</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/UberMetroid/statesync/master/unraid/unraid-template.xml</TemplateURL>
-  
-  <!-- Port Mapping -->
-  <Config Name="WebUI Port" Target="8754" Default="8754" Mode="tcp" Description="Web interface port for the statesync dashboard." Type="Port" Display="always" Required="true" Mask="false"/>
+
+  <!-- Port Mapping (loopback only; remove `127.0.0.1:` and set STATESYNC_WEB_AUTH for LAN exposure) -->
+  <Config Name="WebUI Port" Target="8754" Default="8754" Mode="tcp" Description="Web interface port for the statesync dashboard. Default binds to host loopback only." Type="Port" Display="always" Required="true" Mask="false"/>
 
   <!-- Volume Mapping -->
   <Config Name="Config Volume" Target="/config" Default="/mnt/user/appdata/statesync" Mode="rw" Description="Persistent directory for statesync settings and config file." Type="Path" Display="always" Required="true" Mask="false"/>
+
+  <!-- Bind / Auth -->
+  <Config Name="Bind Address" Target="STATESYNC_BIND" Default="127.0.0.1:8754" Mode="" Description="Listen address. Set to 0.0.0.0:8754 ONLY if STATESYNC_WEB_AUTH is also set." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Web UI Bearer Token" Target="STATESYNC_WEB_AUTH" Default="" Mode="" Description="Required when Bind Address is not loopback. Format: bearer:&lt;token&gt;. Generate with: openssl rand -hex 32" Type="Variable" Display="advanced" Required="false" Mask="true"/>
 
   <!-- Global Settings -->
   <Config Name="Log Level" Target="RUST_LOG" Default="info" Mode="" Description="Logging level (info, warn, error, debug)" Type="Variable" Display="advanced" Required="false" Mask="false"/>

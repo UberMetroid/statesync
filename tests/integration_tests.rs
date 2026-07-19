@@ -12,31 +12,45 @@ use std::time::Instant;
 use tokio::sync::{Mutex, mpsc};
 use tower::util::ServiceExt;
 
-// 1. Security Test: Verify API credentials masking in status output
-#[tokio::test]
-async fn test_api_config_endpoint_masks_keys() {
-    let temp_cfg_path = get_config_path();
-    let old_content = std::fs::read_to_string(temp_cfg_path).ok();
-
-    let test_config = Config {
+fn make_test_config() -> Config {
+    Config {
         servers: vec![ServerConfig {
             name: "test_server".to_string(),
             url: "http://localhost:8096".to_string(),
             api_key: "my_super_secret_api_key_123456".to_string(),
             is_emby: true,
             sync_direction: "both".to_string(),
+            allow_insecure_http: true,
         }],
         sync_threshold_seconds: 5,
         user_mappings: vec![],
-    };
+    }
+}
+
+fn make_web_state(
+    app_state: Arc<Mutex<AppState>>,
+    reload_tx: mpsc::Sender<()>,
+) -> Arc<WebServerState> {
+    Arc::new(WebServerState {
+        app_state,
+        reload_tx,
+        bind_addr: "127.0.0.1:0".to_string(),
+        web_auth: None,
+    })
+}
+
+// 1. Security Test: Verify API credentials masking in status output
+#[tokio::test]
+async fn test_api_config_endpoint_masks_keys() {
+    let temp_cfg_path = get_config_path();
+    let old_content = std::fs::read_to_string(temp_cfg_path).ok();
+
+    let test_config = make_test_config();
     std::fs::write(temp_cfg_path, serde_json::to_string(&test_config).unwrap()).unwrap();
 
     let app_state = Arc::new(Mutex::new(AppState::new(vec![])));
     let (reload_tx, _) = mpsc::channel(1);
-    let web_state = Arc::new(WebServerState {
-        app_state,
-        reload_tx,
-    });
+    let web_state = make_web_state(app_state, reload_tx);
     let app = create_router(web_state);
 
     let response = app
@@ -64,6 +78,58 @@ async fn test_api_config_endpoint_masks_keys() {
     } else {
         let _ = std::fs::remove_file(temp_cfg_path);
     }
+}
+
+// 1b. Security Test: Public assets reachable without auth; /api/config requires auth when configured.
+#[tokio::test]
+async fn test_public_paths_no_auth_needed() {
+    let app_state = Arc::new(Mutex::new(AppState::new(vec![])));
+    let (reload_tx, _) = mpsc::channel(1);
+    let web_state = make_web_state(app_state, reload_tx);
+    let app = create_router(web_state);
+
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_api_protected_with_bearer_auth() {
+    let app_state = Arc::new(Mutex::new(AppState::new(vec![])));
+    let (reload_tx, _) = mpsc::channel(1);
+    let web_state = Arc::new(WebServerState {
+        app_state,
+        reload_tx,
+        bind_addr: "0.0.0.0:8754".to_string(),
+        web_auth: Some("bearer:secret123".to_string()),
+    });
+    let app = create_router(web_state);
+
+    let r1 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r1.status(), StatusCode::UNAUTHORIZED);
+
+    let r2 = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/status")
+                .header("authorization", "Bearer secret123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r2.status(), StatusCode::OK);
 }
 
 // 2. RFC Test: WebSocket keep-alive URL query string structure

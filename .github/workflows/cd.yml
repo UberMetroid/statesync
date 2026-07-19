@@ -13,6 +13,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout Code
@@ -40,8 +42,14 @@ jobs:
             type=semver,pattern={{version}}
             type=sha,format=short
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+          labels: |
+            org.opencontainers.image.title=StateSync
+            org.opencontainers.image.description=Emby/Jellyfin playstate sync bridge
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
 
-      - name: Build and Push Docker Image
+      - name: Build and Push Docker Image (with SBOM + provenance)
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -49,3 +57,27 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          outputs: type=image,name=target,annotation-index.sbom.description=SBOM,oci-mediatypes=true
+
+      - name: Generate SBOM attestation
+        uses: actions/attest-sbom@v1
+        with:
+          subject-name: ${{ steps.build.outputs.imageName }}
+          sbom-path: ${{ steps.build.outputs.sbomPath }}
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.build.outputs.imageName }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+
+      - name: Upload Trivy scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
