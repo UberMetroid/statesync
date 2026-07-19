@@ -571,6 +571,18 @@ pub async fn get_sync_force_status(
     Json(status)
 }
 
+pub async fn post_sync_force_cancel(Extension(state): Extension<Arc<WebServerState>>) -> Response {
+    let tracker = {
+        let st = state.app_state.lock().await;
+        st.sync_force.clone()
+    };
+    crate::sync_force::cancel_backfill(&tracker).await;
+    Response::builder()
+        .status(StatusCode::ACCEPTED)
+        .body(Body::from(r#"{"status":"cancel requested"}"#))
+        .unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

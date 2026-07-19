@@ -96,6 +96,7 @@ pub struct SyncForceTracker {
     pub status: Mutex<ForceSyncStatus>,
     pub running: Mutex<bool>,
     pub force_sync_in_progress: std::sync::atomic::AtomicBool,
+    pub cancel: std::sync::atomic::AtomicBool,
 }
 
 pub struct ForceContext {
@@ -461,6 +462,10 @@ pub async fn snapshot_status(tracker: &SyncForceTracker) -> ForceSyncStatus {
     tracker.status.lock().await.clone()
 }
 
+pub async fn cancel_backfill(tracker: &SyncForceTracker) {
+    tracker.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 pub fn direction_from_env() -> Direction {
     match std::env::var("STATESYNC_FORCE_DIRECTION")
         .unwrap_or_default()
@@ -507,6 +512,42 @@ mod tests {
         assert!(s.started_at.is_none());
         assert!(s.finished_at.is_none());
         assert!(s.processed == 0);
+    }
+
+    #[test]
+    fn running_status_carries_progress_counts() {
+        let s = ForceSyncStatus {
+            state: ForceSyncState::Running,
+            started_at: Some("2026-07-19T15:00:00Z".to_string()),
+            finished_at: None,
+            direction: Some(Direction::Both),
+            total_pairs: 100,
+            processed: 42,
+            succeeded: 40,
+            skipped: 1,
+            failed: 1,
+            current_user: Some("alice".to_string()),
+            last_error: None,
+            errors: vec![],
+        };
+        assert_eq!(s.state, ForceSyncState::Running);
+        assert_eq!(s.processed, 42);
+        assert_eq!(s.total_pairs, 100);
+        assert!(s.current_user.is_some());
+    }
+
+    #[test]
+    fn cancel_backfill_sets_flag() {
+        use std::sync::Arc;
+        use std::sync::atomic::Ordering;
+        let tracker = Arc::new(SyncForceTracker::default());
+        assert!(!tracker.cancel.load(Ordering::SeqCst));
+        let t2 = tracker.clone();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            crate::sync_force::cancel_backfill(&t2).await;
+        });
+        assert!(tracker.cancel.load(Ordering::SeqCst));
     }
 
     #[test]

@@ -36,10 +36,21 @@ pub fn render_dashboard() -> Markup {
                                 button class="btn" id="refreshUsersBtn" onclick="refreshUsers()" { "[ REFRESH USERS ]" }
                                 button class="btn btn-accent" id="forceSyncBtn" onclick="forceSync()" { "[ FORCE SYNC ]" }
                                 button class="btn btn-accent" onclick="openSettingsModal()" { "[ SETTINGS ]" }
-                                button class="btn" onclick="openServerModal(-1)" { "[ + ADD MODULE ]" }
+                                button class="btn" onclick="openServerModal(-1)" { "[ + ADD MEDIA SERVER ]" }
                             }
                         }
                         div id="lastFullSyncBanner" style="margin-bottom:20px;padding:10px 14px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.2);font-size:12px;color:var(--text);display:flex;justify-content:space-between;align-items:center" {}
+                        div id="forceSyncLive" style="margin-bottom:20px;padding:12px 14px;border:1px solid var(--border);background:rgba(0,240,255,0.06);font-size:12px;display:none" {
+                            div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px" {
+                                div { "FULL SYNC IN PROGRESS" }
+                                div id="fsProgressText" style="color:var(--border)" {}
+                            }
+                            progress id="fsProgressBar" value="0" max="100" style="width:100%;height:8px;-webkit-appearance:none;appearance:none" {}
+                            div id="fsCurrentUser" style="margin-top:6px;font-size:11px;color:var(--text);opacity:0.8" {}
+                            div style="margin-top:8px;text-align:right" {
+                                button class="btn btn-danger" id="fsCancelBtn" onclick="cancelForceSync()" { "CANCEL" }
+                            }
+                        }
                         div class="row-grid" {
     div class="card" {
                             h2 { "[ MAPPED USERS ]" }
@@ -65,10 +76,10 @@ pub fn render_dashboard() -> Markup {
                     }
                     div class="modal" id="serverModal" {
                         div class="modal-content" {
-                            h2 id="modalTitle" { "[ CONFIGURE MODULE ]" }
+                            h2 id="modalTitle" { "[ CONFIGURE MEDIA SERVER ]" }
                             form id="serverForm" {
                                 div class="form-group" {
-                                    label { "MODULE TYPE" }
+                                    label { "SERVER TYPE" }
                                     div class="radio-row" {
                                         button type="button" class="btn-radio btn-radio-jellyfin active" id="btnJellyfin" onclick="pickType('jellyfin')" { "JELLYFIN" }
                                         button type="button" class="btn-radio btn-radio-emby" id="btnEmby" onclick="pickType('emby')" { "EMBY" }
@@ -78,7 +89,7 @@ pub fn render_dashboard() -> Markup {
                                 div class="form-group" {
                                     label { "SERVER ADDRESS" }
                                     div style="display:flex;gap:8px;align-items:center" {
-                                        input type="url" id="serverUrl" placeholder="http://emby.local:8096" required="" style="flex:1" {}
+                                        input type="url" id="serverUrl" placeholder="http://emby.local:8096" required="" style="flex:1";
                                         button type="button" class="btn" id="autoNameBtn" onclick="autoFetchServerName()" { "↻ AUTO" }
                                     }
                                 }
@@ -87,7 +98,7 @@ pub fn render_dashboard() -> Markup {
                                     input type="text" id="serverName" required="" placeholder="(auto-filled from server when ↻ AUTO clicked)" {}
                                 }
                                 div class="form-group" {
-                                    label { "ACCESS KEY (API)" }
+                                    label { "API KEY" }
                                     input type="password" id="serverKey" required="" {}
                                 }
                                 div class="form-group" {

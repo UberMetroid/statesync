@@ -109,6 +109,15 @@ async function loadDashboard() {
       const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO ACTIVE STREAMS DETECTED';
       activeDiv.appendChild(empty);
     }
+    if (currentConfig.servers.length === 0) {
+      usersDiv.textContent = '';
+      const empty2 = document.createElement('div');
+      empty2.style.cssText = 'padding:20px;text-align:center;color:var(--accent);font-size:13px';
+      empty2.innerHTML = 'No media servers yet. ' +
+        '<a href="#" onclick="openServerModal(-1); return false;" ' +
+        'style="color:var(--border);text-decoration:underline">Add your first one</a>.';
+      usersDiv.appendChild(empty2);
+    }
     const usersDiv = $('syncedUsers');
     if (!status.servers || status.servers.length === 0) {
       usersDiv.textContent = '';
@@ -197,9 +206,13 @@ async function loadDashboard() {
       });
       logsDiv.scrollTop = logsDiv.scrollHeight;
     } else {
-      logsDiv.textContent = '';
-      const empty = document.createElement('div'); empty.style.color = 'var(--green)'; empty.textContent = '> LISTENING FOR METRIC EVENTS...';
-      logsDiv.appendChild(empty);
+      listDiv.textContent = '';
+      const empty = document.createElement('div');
+      empty.style.cssText = 'padding:20px;text-align:center;color:var(--accent);font-size:13px';
+      empty.innerHTML = 'NO MEDIA SERVERS CONFIGURED. ' +
+        '<a href="#" onclick="openServerModal(-1); return false;" ' +
+        'style="color:var(--border);text-decoration:underline">Click + ADD MEDIA SERVER</a> to get started.';
+      listDiv.appendChild(empty);
     }
     // Last full sync banner
     const banner = $('lastFullSyncBanner');
@@ -213,11 +226,16 @@ async function loadDashboard() {
         const statusColor = fs.state === 'completed' ? 'var(--green)' : 'var(--red)';
         left.innerHTML = 'Last full sync: <span style="color:' + statusColor + '">' + fs.state.toUpperCase() + '</span> · ' + ago +
           ' · ' + fs.processed + ' items (ok=' + fs.succeeded + ' skip=' + fs.skipped + ' fail=' + fs.failed + ')';
+        banner.style.borderColor = 'rgba(255,255,255,0.1)';
+        banner.style.background = 'rgba(0,0,0,0.2)';
       } else if (fs.started_at) {
-        const age = Date.now() - new Date(fs.started_at).getTime();
-        left.innerHTML = 'Full sync in progress · started ' + formatAgo(age) + ' ago · ' + fs.processed + ' items so far';
+        left.innerHTML = 'Full sync in progress · started ' + formatAgo(Date.now() - new Date(fs.started_at).getTime()) + ' ago · ' + fs.processed + ' items so far';
+        banner.style.borderColor = 'var(--border)';
+        banner.style.background = 'rgba(0,240,255,0.06)';
       } else {
         left.textContent = 'No force sync has been run yet. Click FORCE SYNC to push historical played state across all servers.';
+        banner.style.borderColor = 'rgba(255,255,255,0.1)';
+        banner.style.background = 'rgba(0,0,0,0.2)';
       }
       banner.appendChild(left);
       const right = document.createElement('span');
@@ -225,6 +243,44 @@ async function loadDashboard() {
       right.textContent = 'run now';
       right.onclick = forceSync;
       banner.appendChild(right);
+    }
+
+    // Live progress panel (only when running)
+    const live = $('forceSyncLive');
+    if (live) {
+      const fs = status.last_full_sync;
+      if (fs && fs.state === 'running' && fs.started_at && !fs.finished_at) {
+        const totalPairs = fs.total_pairs || 1;
+        const processed = fs.processed || 0;
+        const pct = Math.min(100, Math.floor(processed / totalPairs * 100));
+        const elapsed = Math.max(1, Math.round((Date.now() - new Date(fs.started_at).getTime()) / 1000));
+        const rate = elapsed > 0 ? (processed / elapsed).toFixed(1) : '0';
+        live.style.display = 'block';
+        const bar = $('fsProgressBar');
+        if (bar) { bar.value = pct; bar.max = 100; }
+        const txt = $('fsProgressText');
+        if (txt) txt.textContent = pct + '% · ' + processed + ' / ' + totalPairs + ' pairs (' + rate + '/s · ' + formatAgo(elapsed * 1000) + ')';
+        const cu = $('fsCurrentUser');
+        if (cu) cu.textContent = fs.current_user ? 'currently syncing: ' + fs.current_user : '';
+      } else {
+        live.style.display = 'none';
+      }
+    }
+
+    // Force sync button disable logic
+    const forceBtn = $('forceSyncBtn');
+    if (forceBtn) {
+      const noServers = !currentConfig.servers || currentConfig.servers.length === 0;
+      const inProgress = status.last_full_sync &&
+                        (status.last_full_sync.state === 'running' || (status.last_full_sync.started_at && !status.last_full_sync.finished_at));
+      forceBtn.disabled = noServers || inProgress;
+      if (noServers) {
+        forceBtn.title = 'Add a media server first';
+      } else if (inProgress) {
+        forceBtn.title = 'A force sync is already running';
+      } else {
+        forceBtn.removeAttribute('title');
+      }
     }
     const footer = $('versionFooter');
     if (footer && status.version) {
@@ -242,7 +298,7 @@ async function loadDashboard() {
 }
 function openServerModal(idx) {
   editIndex = idx; const isAdd = idx === -1;
-  $('modalTitle').innerText = isAdd ? '[ ADD TRANSCEIVER MODULE ]' : '[ EDIT TRANSCEIVER MODULE ]';
+  $('modalTitle').innerText = isAdd ? '[ ADD MEDIA SERVER ]' : '[ EDIT MEDIA SERVER ]';
   if (isAdd) {
     $('serverForm').reset();
     pickType('jellyfin');
@@ -364,15 +420,25 @@ async function refreshUsers() {
 let _forceSyncTimer = null;
 async function forceSync() {
   const btn = $('forceSyncBtn');
-  const status = $('forceSyncStatus');
+  if (btn && btn.disabled) return;
   if (btn) btn.disabled = true;
-  if (status) status.textContent = 'STARTING...';
   showToast('FORCE SYNC STARTED');
   try {
     const res = await authedFetch('/api/sync/force', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direction: 'both' }) });
     pollForceSync();
   } catch (err) {
     showToast('FORCE SYNC FAILED: ' + err.message);
+    if (btn) btn.disabled = false;
+  }
+}
+async function cancelForceSync() {
+  const btn = $('fsCancelBtn');
+  if (btn) btn.disabled = true;
+  showToast('CANCEL REQUESTED (stops after current item)');
+  try {
+    await authedFetch('/api/sync/force/cancel', { method: 'POST' });
+  } catch (err) {
+    showToast('CANCEL FAILED: ' + err.message);
     if (btn) btn.disabled = false;
   }
 }
