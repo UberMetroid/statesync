@@ -40,7 +40,7 @@ async function loadDashboard() {
     const listDiv = $('serverList');
     if (currentConfig.servers.length === 0) {
       listDiv.textContent = '';
-      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO CONFIGURED TRANSCEIVERS';
+      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO MEDIA SERVERS CONFIGURED';
       listDiv.appendChild(empty);
     } else {
       listDiv.textContent = '';
@@ -62,7 +62,7 @@ async function loadDashboard() {
 
         const right = document.createElement('div'); right.className = 'server-info';
         const metaSpan = document.createElement('span'); metaSpan.style.fontSize = '12px';
-        metaSpan.textContent = sStatus.users_count + ' USERS | ' + sStatus.media_count + ' CACHED';
+        metaSpan.textContent = sStatus.users_count + ' USERS';
         const editBtn = document.createElement('button'); editBtn.className = 'btn'; editBtn.textContent = '[ EDIT ]';
         editBtn.addEventListener('click', () => openServerModal(idx));
         const wipeBtn = document.createElement('button'); wipeBtn.className = 'btn btn-danger'; wipeBtn.textContent = '[ WIPE ]';
@@ -121,7 +121,7 @@ async function loadDashboard() {
     const usersDiv = $('syncedUsers');
     if (!status.servers || status.servers.length === 0) {
       usersDiv.textContent = '';
-      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO ACTIVE TRANSCEIVERS';
+      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO MEDIA SERVERS CONFIGURED';
       usersDiv.appendChild(empty);
     } else {
       usersDiv.textContent = '';

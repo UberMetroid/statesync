@@ -22,17 +22,6 @@ pub fn render_dashboard() -> Markup {
                         h1 {
                             span { "StateSync" }
                             div style="display: flex; gap: 10px; align-items: center;" {
-                                select id="themeSelector" class="btn" style="background:#000;padding:7px 10px;" onchange="setTheme(this.value)" {
-                                    option value="cyberpunk" { "CYBERPUNK" }
-                                    option value="matrix" { "MATRIX" }
-                                    option value="outrun" { "SYNTHWAVE" }
-                                    option value="crimson" { "CRIMSON" }
-                                    option value="solarized" { "SOLARIZED" }
-                                    option value="nordic" { "NORDIC" }
-                                    option value="mono" { "MONOCHROME" }
-                                    option value="military" { "MILITARY" }
-                                    option value="royal" { "ROYAL" }
-                                }
                                 button class="btn" id="refreshUsersBtn" onclick="refreshUsers()" { "[ REFRESH USERS ]" }
                                 button class="btn btn-accent" id="forceSyncBtn" onclick="forceSync()" { "[ FORCE SYNC ]" }
                                 button class="btn btn-accent" onclick="openSettingsModal()" { "[ SETTINGS ]" }
@@ -58,14 +47,14 @@ pub fn render_dashboard() -> Markup {
                             div id="forceSyncStatus" style="margin-top:10px;font-size:11px;color:var(--text);opacity:0.7" {}
                         }
                             div class="card" {
-                                h2 { "[ STREAM MONITOR ]" }
+                                h2 { "[ ACTIVE STREAMS ]" }
                                 div id="activeSessions" style="display: flex; flex-direction: column; gap: 10px;" {
                                     div style="color: var(--accent)" { "NO ACTIVE STREAMS DETECTED" }
                                 }
                             }
                         }
                         div class="card" {
-                            h2 { "[ TRANSCEIVER MODULES ]" }
+                            h2 { "[ MEDIA SERVERS ]" }
                             div class="server-list" id="serverList" {}
                         }
                         div class="card" {
@@ -124,6 +113,20 @@ pub fn render_dashboard() -> Markup {
                     div class="modal" id="settingsModal" {
                         div class="modal-content" {
                             h2 { "[ GLOBAL SETTINGS ]" }
+                            div class="form-group" {
+                                label { "UI THEME" }
+                                select id="themeSelector" onchange="setTheme(this.value)" {
+                                    option value="cyberpunk" { "CYBERPUNK" }
+                                    option value="matrix" { "MATRIX" }
+                                    option value="outrun" { "SYNTHWAVE" }
+                                    option value="crimson" { "CRIMSON" }
+                                    option value="solarized" { "SOLARIZED" }
+                                    option value="nordic" { "NORDIC" }
+                                    option value="mono" { "MONOCHROME" }
+                                    option value="military" { "MILITARY" }
+                                    option value="royal" { "ROYAL" }
+                                }
+                            }
                             div class="form-group" {
                                 label { "SYNC WINDOW THRESHOLD (SECONDS)" }
                                 input type="number" id="syncThreshold" min="1" value="5" {}
