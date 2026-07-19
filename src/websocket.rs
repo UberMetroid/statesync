@@ -195,7 +195,7 @@ pub async fn handle_websocket_loop(
                                             }
                                             if !missing_users.is_empty() {
                                                 info!(
-                                                    "Detected new users {:?} on '{}'. Hot-reloading user list...",
+                                                    "Detected new users {:?} on '{}'. Hot-reloading user list (merging)...",
                                                     missing_users, source_name
                                                 );
                                                 if let Ok(new_users) =
@@ -203,8 +203,12 @@ pub async fn handle_websocket_loop(
                                                 {
                                                     let mut state = state_lock.lock().await;
                                                     if source_index < state.caches.len() {
-                                                        state.caches[source_index].users =
-                                                            new_users;
+                                                        for (k, v) in new_users {
+                                                            state.caches[source_index]
+                                                                .users
+                                                                .entry(k)
+                                                                .or_insert(v);
+                                                        }
                                                     }
                                                 }
                                             }

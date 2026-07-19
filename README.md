@@ -121,6 +121,24 @@ GET /healthz   → 200 OK | 503 Service Unavailable
 
 Unauthenticated. Returns JSON with version, uptime, server count, and connected count. Use this for container health checks, uptime monitoring, etc.
 
+## Container user
+
+The daemon runs as the system `nobody` user (uid 65534), which is Unraid's appdata convention. The entrypoint chowns `/config` to `nobody:nogroup` on every start so the daemon can write to it without permission errors.
+
+If you see files owned by `65534` instead of `nobody` in some view (e.g. Unraid's file manager or via SSH on the host), that's because that view is consulting the host's `/etc/passwd` — same uid, same user, just shown numerically. The container's `/etc/passwd` has `nobody:x:65534:65534:nobody:/:/sbin/nologin`, so `ls -l` inside the container shows `nobody`.
+
+## Force sync
+
+The dashboard has a **FORCE SYNC** button (next to the MAPPED USERS header) and a CLI:
+
+```bash
+statesync --sync-force [--direction=emby-to-jellyfin|jellyfin-to-emby|both]
+```
+
+Iterates every user on every source server, reads their played items, resolves the target on the other server, and pushes the source state (source-wins merge). Rate-limited to 5 items/sec by default (`STATESYNC_FORCE_RATE` env var, 1..50). Live WebSocket sync is paused for the duration to avoid two-writer races on `last_syncs`.
+
+Useful for initial reconciliation after the daemon has been running a while and you want to push all historical played state across.
+
 ## Security
 
 - **API keys**: stored in `config.json` only. Returned masked by `GET /api/config` (first 4 + last 4 chars).

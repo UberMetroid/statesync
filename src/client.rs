@@ -146,20 +146,35 @@ impl MediaClient {
     }
 
     pub async fn get_users(&self) -> Result<HashMap<String, String>> {
-        let url = self.url_path("/Users");
-        let resp = self
-            .add_auth_headers(self.client.get(&url))
-            .send()
-            .await
-            .context("Failed to get users list")?;
-
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .context("Failed to parse users response")?;
-
         let mut map = HashMap::new();
-        if let Some(arr) = data.as_array() {
+        let mut start_index: usize = 0;
+        let page_size: usize = 500;
+        loop {
+            let path = format!("/Users?StartIndex={}&Limit={}", start_index, page_size);
+            let url = self.url_path(&path);
+            let resp = send_with_retry(self.add_auth_headers(self.client.get(&url)), "get_users")
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to get users list (page {})",
+                        start_index / page_size
+                    )
+                })?;
+            let data: serde_json::Value = resp
+                .json()
+                .await
+                .context("Failed to parse users response")?;
+            let arr = data
+                .get("Items")
+                .and_then(|v| v.as_array())
+                .or_else(|| data.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let total = data
+                .get("TotalRecordCount")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let page_count = arr.len();
             for u in arr {
                 if let (Some(name), Some(id)) = (
                     u.get("Name").and_then(|n| n.as_str()),
@@ -167,6 +182,13 @@ impl MediaClient {
                 ) {
                     map.insert(name.to_lowercase(), id.to_string());
                 }
+            }
+            if page_count < page_size || map.len() >= total {
+                break;
+            }
+            start_index += page_size;
+            if start_index > 50_000 {
+                break;
             }
         }
         Ok(map)
@@ -340,4 +362,90 @@ impl MediaClient {
         }
         Ok(())
     }
+
+    pub async fn get_user_played_items(
+        &self,
+        user_id: &str,
+        start_index: usize,
+        limit: usize,
+    ) -> Result<Vec<PlayedItem>> {
+        let path = format!(
+            "/Users/{}/Items?Recursive=true&Fields=ProviderIds,UserData&Filters=IsPlayed=true&StartIndex={}&Limit={}",
+            user_id, start_index, limit
+        );
+        let url = self.url_path(&path);
+        let resp = send_with_retry(
+            self.add_auth_headers(self.client.get(&url)),
+            "get_user_played_items",
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to list played items for user {} (page {})",
+                user_id,
+                start_index / limit
+            )
+        })?;
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .context("Failed to parse played items response")?;
+        let arr = data
+            .get("Items")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut out = Vec::with_capacity(arr.len());
+        for mut v in arr {
+            let imdb = v
+                .get("ProviderIds")
+                .and_then(|p| p.get("Imdb"))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
+            let tmdb = v
+                .get("ProviderIds")
+                .and_then(|p| p.get("Tmdb"))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
+            if let Some(map) = v.as_object_mut() {
+                if let Some(imdb) = &imdb {
+                    map.insert(
+                        "imdb_id".to_string(),
+                        serde_json::Value::String(imdb.clone()),
+                    );
+                }
+                if let Some(tmdb) = &tmdb {
+                    map.insert(
+                        "tmdb_id".to_string(),
+                        serde_json::Value::String(tmdb.clone()),
+                    );
+                }
+            }
+            match serde_json::from_value::<PlayedItem>(v) {
+                Ok(item) => out.push(item),
+                Err(_) => continue,
+            }
+        }
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PlayedItem {
+    #[serde(alias = "Id", alias = "id")]
+    pub id: String,
+    #[serde(default, alias = "Played", alias = "played")]
+    pub played: bool,
+    #[serde(
+        default,
+        alias = "PlaybackPositionTicks",
+        alias = "playbackPositionTicks"
+    )]
+    pub playback_position_ticks: Option<i64>,
+    #[serde(default, alias = "LastPlayedDate", alias = "lastPlayedDate")]
+    pub last_played_date: Option<String>,
+    #[serde(default)]
+    pub imdb_id: Option<String>,
+    #[serde(default)]
+    pub tmdb_id: Option<String>,
 }

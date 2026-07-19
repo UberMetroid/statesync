@@ -30,6 +30,21 @@ pub async fn sync_progress_to_targets(
     config: &Config,
     source_client: &Arc<MediaClient>,
 ) {
+    {
+        let st = state_lock.lock().await;
+        if st
+            .sync_force
+            .force_sync_in_progress
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            tracing::debug!(
+                "force-sync in progress; skipping live sync for {} on {}",
+                user_name,
+                source_name
+            );
+            return;
+        }
+    }
     let _permit = sync_semaphore().acquire().await;
     let user_lower = user_name.to_lowercase();
 

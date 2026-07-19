@@ -7,6 +7,14 @@
 #     silently on read-only mounts; the daemon handles that gracefully.
 #  2. Execs the daemon as nobody:nogroup via su-exec.
 #
+# About the user:
+#   Alpine's /etc/passwd has:  nobody:x:65534:65534:nobody:/:/sbin/nologin
+#   So inside the container, `ls -l` shows owner `nobody` (uid 65534).
+#   If you see the bare numeric `65534` in some other view, that's
+#   because that view is consulting the host's /etc/passwd (where the
+#   same uid 65534 typically also maps to nobody). 65534 IS nobody;
+#   it's the same user, just shown numerically.
+#
 # su-exec is ~10KB of C that does the standard "drop privs and exec"
 # pattern without the overhead of bash function spawning.
 

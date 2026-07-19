@@ -65,6 +65,9 @@ async fn main() -> Result<()> {
             "--dry-run" => {
                 return dry_run().await;
             }
+            "--sync-force" => {
+                return run_sync_force_cli(&args).await;
+            }
             _ => {
                 eprintln!(
                     "Unknown argument: {}. Use --help to see available commands.",
@@ -354,6 +357,9 @@ fn print_help() {
     println!("  --reload         Trigger reload of config.json on the running service");
     println!("  --tui            Launch the interactive terminal dashboard");
     println!("  --dry-run        Load config, init caches, run mapping dry-run; exit 0/1");
+    println!(
+        "  --sync-force     Force a full played-items sync between all servers (see --sync-force --help)"
+    );
     println!();
     println!("Environment Variables:");
     println!("  STATESYNC_BIND                 Listen address (default: 127.0.0.1:8754)");
@@ -370,6 +376,10 @@ fn print_help() {
     println!("  STATESYNC_HTTP_RETRY           'off' to disable retry with backoff.");
     println!("  STATESYNC_MAX_SYNC_SPAWNS      Max concurrent sync tasks per source (default 8).");
     println!("  STATESYNC_LOG_RETENTION        Number of log entries kept in memory (default 30).");
+    println!(
+        "  STATESYNC_FORCE_DIRECTION      emby-to-jellyfin | jellyfin-to-emby | both (default)."
+    );
+    println!("  STATESYNC_FORCE_RATE           Items/sec during --sync-force, 1..50 (default 5).");
     println!("  RUST_LOG                       tracing log filter (overrides default 'info').");
     println!("  TZ                             Container timezone.");
 }
@@ -673,4 +683,115 @@ fn draw_tui_from_json(status: &serde_json::Value) {
 
     use std::io::Write;
     let _ = std::io::stdout().flush();
+}
+
+fn parse_sync_force_args(args: &[String]) -> statesync::sync_force::Direction {
+    for a in args.iter().skip(2) {
+        if let Some(v) = a.strip_prefix("--direction=") {
+            return match v {
+                "emby-to-jellyfin" => statesync::sync_force::Direction::EmbyToJellyfin,
+                "jellyfin-to-emby" => statesync::sync_force::Direction::JellyfinToEmby,
+                _ => statesync::sync_force::Direction::Both,
+            };
+        }
+        if a == "--help" || a == "-h" {
+            println!(
+                "Usage: statesync --sync-force [--direction=emby-to-jellyfin|jellyfin-to-emby|both]"
+            );
+            std::process::exit(0);
+        }
+    }
+    statesync::sync_force::direction_from_env()
+}
+
+async fn run_sync_force_cli(args: &[String]) -> Result<()> {
+    init_logging();
+    let config = Config::load()?;
+    if config.servers.is_empty() {
+        eprintln!("No servers configured.");
+        std::process::exit(1);
+    }
+    let server_names: Vec<String> = config.servers.iter().map(|s| s.name.clone()).collect();
+    let mut clients = Vec::new();
+    for s in &config.servers {
+        let client = std::sync::Arc::new(MediaClient::new(
+            s.url.clone(),
+            s.api_key.clone(),
+            s.is_emby,
+        ));
+        clients.push(client);
+    }
+    let state = std::sync::Arc::new(tokio::sync::Mutex::new(statesync::state::AppState::new(
+        Vec::new(),
+    )));
+    let tracker = state.lock().await.sync_force.clone();
+    let direction = parse_sync_force_args(args);
+
+    println!(
+        "Starting --sync-force: direction={:?}, rate={}/sec, servers={}",
+        direction,
+        std::env::var("STATESYNC_FORCE_RATE")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(5),
+        server_names.join(",")
+    );
+
+    let last_print = std::sync::Arc::new(tokio::sync::Mutex::new(std::time::Instant::now()));
+    let printer = {
+        let tracker = tracker.clone();
+        let last_print = last_print.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let status = tracker.status.lock().await.clone();
+                if status.state != statesync::sync_force::ForceSyncState::Running {
+                    if status.state != statesync::sync_force::ForceSyncState::Idle {
+                        println!(
+                            "[{:?}] done: processed={} ok={} skip={} fail={}",
+                            status.state,
+                            status.processed,
+                            status.succeeded,
+                            status.skipped,
+                            status.failed
+                        );
+                    }
+                    break;
+                }
+                let now = std::time::Instant::now();
+                let mut last = last_print.lock().await;
+                if now.duration_since(*last).as_secs() >= 2 {
+                    println!(
+                        "[running] {}/{} processed (ok={} skip={} fail={}) user={}",
+                        status.processed,
+                        status.total_pairs,
+                        status.succeeded,
+                        status.skipped,
+                        status.failed,
+                        status.current_user.as_deref().unwrap_or("?"),
+                    );
+                    *last = now;
+                }
+            }
+        })
+    };
+
+    let ctx = statesync::sync_force::ForceContext {
+        config,
+        clients,
+        state,
+        tracker: tracker.clone(),
+        direction,
+    };
+    let status = statesync::sync_force::run_force_sync(ctx).await;
+    let _ = printer.await;
+
+    println!(
+        "--sync-force {:?}: processed={} ok={} skip={} fail={}",
+        status.state, status.processed, status.succeeded, status.skipped, status.failed
+    );
+    if status.state == statesync::sync_force::ForceSyncState::Failed {
+        std::process::exit(1);
+    }
+    Ok(())
 }

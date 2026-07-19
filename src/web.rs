@@ -56,6 +56,18 @@ pub fn create_router(web_state: Arc<WebServerState>) -> Router {
         .route(
             "/api/reload",
             axum::routing::post(crate::web_api::post_reload),
+        )
+        .route(
+            "/api/users/refresh",
+            axum::routing::post(crate::web_api::post_users_refresh),
+        )
+        .route(
+            "/api/sync/force",
+            axum::routing::post(crate::web_api::post_sync_force),
+        )
+        .route(
+            "/api/sync/force/status",
+            get(crate::web_api::get_sync_force_status),
         );
 
     public

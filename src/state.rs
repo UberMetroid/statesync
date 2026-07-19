@@ -1,6 +1,8 @@
 use crate::client::MediaClient;
+use crate::sync_force::SyncForceTracker;
 use anyhow::Result;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -10,6 +12,17 @@ pub struct ServerCache {
     pub imdb_to_id: HashMap<String, String>, // ImdbId -> ItemId
     pub tmdb_to_id: HashMap<String, String>, // TmdbId -> ItemId
     pub id_to_providers: HashMap<String, (String, String)>, // ItemId -> (ImdbId, TmdbId)
+}
+
+impl ServerCache {
+    /// Merge freshly-fetched users into this cache, preserving any
+    /// existing entries. A transient API hiccup that returns fewer
+    /// users than the cache currently has will no longer drop them.
+    pub fn merge_users(&mut self, fresh: HashMap<String, String>) {
+        for (k, v) in fresh {
+            self.users.entry(k).or_insert(v);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +49,7 @@ pub struct AppState {
     pub sync_logs: Vec<SyncLogEntry>,
     pub active_sessions: HashMap<(String, String), (String, String, f64, bool, String)>,
     pub log_retention: usize,
+    pub sync_force: Arc<SyncForceTracker>,
 }
 
 fn default_log_retention() -> usize {
@@ -57,6 +71,7 @@ impl AppState {
             sync_logs: Vec::new(),
             active_sessions: HashMap::new(),
             log_retention: retention,
+            sync_force: Arc::new(SyncForceTracker::default()),
         }
     }
 

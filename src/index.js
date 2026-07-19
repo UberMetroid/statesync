@@ -271,6 +271,65 @@ async function saveConfig() {
   } catch (err) { showToast('WRITE CONFIG FAILED'); }
 }
 function showToast(msg) { const toast = $('toast'); toast.innerText = `> ${msg}`; toast.style.display = 'block'; setTimeout(() => { toast.style.display = 'none'; }, 4000); }
+async function refreshUsers() {
+  const btn = $('refreshUsersBtn');
+  if (btn) btn.disabled = true;
+  showToast('REFRESHING USER LISTS...');
+  try {
+    const res = await authedFetch('/api/users/refresh', { method: 'POST' });
+    const data = await res.json();
+    showToast(`REFRESHED: ${(data.results || []).length} SERVERS`);
+  } catch (err) {
+    showToast('REFRESH FAILED: ' + err.message);
+  }
+  if (btn) btn.disabled = false;
+  loadDashboard();
+}
+let _forceSyncTimer = null;
+async function forceSync() {
+  const btn = $('forceSyncBtn');
+  const status = $('forceSyncStatus');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'STARTING...';
+  showToast('FORCE SYNC STARTED');
+  try {
+    const res = await authedFetch('/api/sync/force', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direction: 'both' }) });
+    pollForceSync();
+  } catch (err) {
+    showToast('FORCE SYNC FAILED: ' + err.message);
+    if (btn) btn.disabled = false;
+  }
+}
+async function pollForceSync() {
+  if (_forceSyncTimer) clearTimeout(_forceSyncTimer);
+  try {
+    const res = await authedFetch('/api/sync/force/status');
+    const s = await res.json();
+    renderForceSync(s);
+    if (s.state === 'running') {
+      _forceSyncTimer = setTimeout(pollForceSync, 1000);
+    } else {
+      _forceSyncTimer = null;
+      const btn = $('forceSyncBtn');
+      if (btn) btn.disabled = false;
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+function renderForceSync(s) {
+  const div = $('forceSyncStatus');
+  if (!div) return;
+  if (s.state === 'idle' && !s.started_at) {
+    div.textContent = 'Force sync has not been run yet.';
+    return;
+  }
+  const elapsed = s.finished_at && s.started_at
+    ? Math.max(1, Math.round((new Date(s.finished_at) - new Date(s.started_at)) / 1000))
+    : (s.started_at ? Math.round((Date.now() - new Date(s.started_at).getTime()) / 1000) : 0);
+  const base = `[${s.state.toUpperCase()}] processed=${s.processed} ok=${s.succeeded} skip=${s.skipped} fail=${s.failed} (${elapsed}s)`;
+  div.textContent = base + (s.last_error ? ` | last: ${s.last_error}` : '');
+}
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { ['serverModal','settingsModal','authModal'].forEach(id => { const m=$(id); if (m && m.style.display === 'flex') m.style.display='none'; }); } });
 const savedTheme = localStorage.getItem('hud-theme') || 'cyberpunk'; setTheme(savedTheme); $('themeSelector').value = savedTheme;
 document.addEventListener('DOMContentLoaded', () => {

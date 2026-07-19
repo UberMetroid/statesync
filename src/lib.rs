@@ -10,6 +10,7 @@ pub mod config;
 pub mod dashboard;
 pub mod state;
 pub mod sync;
+pub mod sync_force;
 pub mod web;
 pub mod web_api;
 pub mod websocket;

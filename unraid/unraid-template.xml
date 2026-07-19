@@ -23,7 +23,9 @@
 
 Open the web UI on port 8754 after install to add servers. API keys are stored in the config volume and masked in the UI.
 
-The container runs as the system 'nobody' user (uid 65534) which is Unraid's appdata convention. The entrypoint chowns the config volume to nobody on startup so config.json persists across container updates without permission errors.</Description>
+The container runs as the system 'nobody' user (uid 65534) — Unraid's appdata convention. If you see files owned by 65534 instead of 'nobody' in some views, that's the same user; the view is consulting the host's /etc/passwd.
+
+Use the REFRESH and FORCE SYNC buttons in the dashboard (top of the MAPPED USERS section) to manually reload the user list or push all historical played state across servers.</Description>
 
   <Category>MediaApp:Video MediaApp:Other</Category>
   <Icon>https://raw.githubusercontent.com/UberMetroid/statesync/master/graphics/statesync_icon.jpg</Icon>
