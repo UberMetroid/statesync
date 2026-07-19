@@ -314,7 +314,8 @@ pub fn write_default_config_to_disk() -> Result<Config> {
         Err(primary_err) if primary.starts_with("/config/") => {
             eprintln!(
                 "WARN: could not write default config to {}: {}. \
-                 /config is likely owned by root (volume-mount ownership mismatch).",
+                 /config is likely read-only or owned by another user \
+                 (host bind-mount ownership mismatch).",
                 primary, primary_err
             );
             let fallback = "/app/config.json";
@@ -322,7 +323,7 @@ pub fn write_default_config_to_disk() -> Result<Config> {
                 Ok(()) => {
                     eprintln!(
                         "WARN: falling back to {} (in-container; not persisted across restart). \
-                         Fix /config ownership on the host and restart to persist.",
+                         Check the /config volume's permissions.",
                         fallback
                     );
                     Ok(config)
@@ -330,8 +331,7 @@ pub fn write_default_config_to_disk() -> Result<Config> {
                 Err(fb_err) => {
                     eprintln!(
                         "WARN: fallback to {} also failed ({}). \
-                         Starting with in-memory default config; changes via the web UI will NOT persist. \
-                         Fix host permissions: chown -R <uid>:1000 /your/config/path",
+                         Starting with in-memory default config; changes via the web UI will NOT persist.",
                         fallback, fb_err
                     );
                     Ok(config)

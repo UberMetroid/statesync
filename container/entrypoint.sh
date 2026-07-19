@@ -1,29 +1,26 @@
 #!/bin/sh
-# Entrypoint wrapper for the statesync container.
+# Entrypoint for the statesync container.
 #
-# Fixes ownership of the persistent /config volume before the daemon
-# starts (best-effort). This handles the common case where the host-side
-# directory was created as root (UID 0), which prevents the non-root
-# 'statesync' user inside the container from writing to it.
+# Runs as root (Docker default for ENTRYPOINT).
+#  1. Best-effort chown of /config and /app to nobody:nogroup so the
+#     daemon (which we drop to nobody below) can write to them. Fails
+#     silently on read-only mounts; the daemon handles that gracefully.
+#  2. Execs the daemon as nobody:nogroup via su-exec.
 #
-# The binary itself also handles this case (falls back to /app/config.json
-# then in-memory), but fixing it here means the user's intended mount
-# path actually works.
+# su-exec is ~10KB of C that does the standard "drop privs and exec"
+# pattern without the overhead of bash function spawning.
 
 set -e
 
-# Only attempt the chown if /config exists as a directory and we have
-# permission to modify it (i.e. running as root before USER statesync).
-if [ -d /config ]; then
-    if command -v chown >/dev/null 2>&1; then
-        # Best-effort: ignore failures (read-only mount, etc.). The
-        # daemon will surface a clearer warning if writes still fail.
-        chown -R statesync:statesync /config 2>/dev/null || true
-    fi
-    # Also ensure the directory itself exists if the volume mount is empty.
-    if [ ! -d /config ]; then
-        mkdir -p /config 2>/dev/null || true
-    fi
-fi
+# Chown the persistent volume and workdir to nobody. If /config is
+# read-only (host bind-mount with restrictive perms), chown fails
+# and the daemon falls back to /app/config.json (see config.rs).
+chown -R nobody:nogroup /config 2>/dev/null || true
+chown -R nobody:nogroup /app 2>/dev/null || true
 
-exec /usr/local/bin/statesync "$@"
+# Make sure the daemon binary is executable by nobody.
+chmod +x /usr/local/bin/statesync
+
+# Drop to nobody and exec. su-exec ensures a clean transition with no
+# bash subshell or signal-forwarding issues.
+exec su-exec nobody:nogroup /usr/local/bin/statesync "$@"
