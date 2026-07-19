@@ -68,18 +68,22 @@ pub fn render_dashboard() -> Markup {
                             form id="serverForm" {
                                 div class="form-group" {
                                     label { "MODULE TYPE" }
-                                    select id="serverType" {
-                                        option value="jellyfin" { "JELLYFIN" }
-                                        option value="emby" { "EMBY" }
+                                    div class="radio-row" {
+                                        button type="button" class="btn-radio btn-radio-jellyfin active" id="btnJellyfin" onclick="pickType('jellyfin')" { "JELLYFIN" }
+                                        button type="button" class="btn-radio btn-radio-emby" id="btnEmby" onclick="pickType('emby')" { "EMBY" }
+                                    }
+                                    input type="hidden" id="serverType" value="jellyfin" {}
+                                }
+                                div class="form-group" {
+                                    label { "SERVER ADDRESS" }
+                                    div style="display:flex;gap:8px;align-items:center" {
+                                        input type="url" id="serverUrl" placeholder="http://emby.local:8096" required="" style="flex:1" {}
+                                        button type="button" class="btn" id="autoNameBtn" onclick="autoFetchServerName()" { "↻ AUTO" }
                                     }
                                 }
                                 div class="form-group" {
-                                    label { "IDENT NAME" }
-                                    input type="text" id="serverName" required="" {}
-                                }
-                                div class="form-group" {
-                                    label { "TRANSCEIVER IP:PORT" }
-                                    input type="url" id="serverUrl" placeholder="http://emby.local:8096" required="" {}
+                                    label { "DISPLAY NAME" }
+                                    input type="text" id="serverName" required="" placeholder="(auto-filled from server when ↻ AUTO clicked)" {}
                                 }
                                 div class="form-group" {
                                     label { "ACCESS KEY (API)" }
@@ -87,11 +91,12 @@ pub fn render_dashboard() -> Markup {
                                 }
                                 div class="form-group" {
                                     label { "SYNC DIRECTION" }
-                                    select id="serverDirection" {
-                                        option value="both" { "BI-DIRECTIONAL" }
-                                        option value="send" { "SEND ONLY" }
-                                        option value="receive" { "RECEIVE ONLY" }
+                                    div class="radio-row" {
+                                        button type="button" class="btn-radio active" data-dir="both" onclick="pickDirection('both')" { "BIDIRECTIONAL" }
+                                        button type="button" class="btn-radio" data-dir="send" onclick="pickDirection('send')" { "SEND ONLY" }
+                                        button type="button" class="btn-radio" data-dir="receive" onclick="pickDirection('receive')" { "RECEIVE ONLY" }
                                     }
+                                    input type="hidden" id="serverDirection" value="both" {}
                                 }
                                 div style="display:flex;justify-content:space-between;margin-top:20px;" {
                                     button type="submit" class="btn" { "[ SAVE ]" }

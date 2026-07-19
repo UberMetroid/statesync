@@ -271,7 +271,11 @@ pub async fn get_status(
         }));
     }
 
-    let mut mapped_users = Vec::new();
+    // All users, with the list of server indices they appear on. Mapped
+    // users have multiple entries; unmatched users have one. The dashboard
+    // renders every user and draws connecting lines between the same
+    // name on different servers.
+    let mut users: Vec<serde_json::Value> = Vec::new();
     let mut processed: HashSet<(usize, String)> = HashSet::new();
     for (srv_idx, cache) in app_state.caches.iter().enumerate() {
         let mut sorted_users: Vec<&String> = cache.users.keys().collect();
@@ -280,10 +284,8 @@ pub async fn get_status(
             if processed.contains(&(srv_idx, username.clone())) {
                 continue;
             }
-            let mut group = vec![None; app_state.caches.len()];
-            group[srv_idx] = Some(username.clone());
+            let mut servers_idx = vec![srv_idx];
             processed.insert((srv_idx, username.clone()));
-            let mut has_any_match = false;
             for (other_idx, other_cache) in app_state.caches.iter().enumerate() {
                 if other_idx == srv_idx {
                     continue;
@@ -301,14 +303,15 @@ pub async fn get_status(
                         .map(|(name, _)| name.clone())
                 });
                 if let Some(name) = matched_name {
-                    group[other_idx] = Some(name.clone());
+                    servers_idx.push(other_idx);
                     processed.insert((other_idx, name));
-                    has_any_match = true;
                 }
             }
-            if has_any_match {
-                mapped_users.push(group);
-            }
+            servers_idx.sort();
+            users.push(json!({
+                "name": username,
+                "servers": servers_idx,
+            }));
         }
     }
 
@@ -335,10 +338,61 @@ pub async fn get_status(
         "started_at": state.started_at,
         "uptime_seconds": state.started_instant.elapsed().as_secs(),
         "servers": servers_status,
-        "mapped_users": mapped_users,
+        "users": users,
         "active_sessions": active_sessions,
         "sync_logs": app_state.sync_logs
     }))
+}
+
+pub async fn get_server_info(
+    _state: Extension<Arc<WebServerState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let url = match params.get("url") {
+        Some(u) if valid_server_url(u) => u.clone(),
+        _ => {
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from(r#"{"error":"missing or invalid 'url'"}"#))
+                .unwrap();
+        }
+    };
+    let api_key = params.get("api_key").cloned().unwrap_or_default();
+    let is_emby = matches!(
+        params.get("is_emby").map(|s| s.as_str()),
+        Some("true") | Some("1")
+    );
+    let client = MediaClient::new(url.clone(), api_key, is_emby);
+    match client.get_public_server_info().await {
+        Ok(info) => Response::builder()
+            .status(StatusCode::OK)
+            .body(Body::from(
+                serde_json::to_string(&json!({
+                    "name": info.get("ServerName")
+                        .or_else(|| info.get("Name"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(""),
+                    "version": info.get("Version").and_then(|v| v.as_str()).unwrap_or(""),
+                    "id": info.get("Id").and_then(|v| v.as_str()).unwrap_or(""),
+                }))
+                .unwrap_or_else(|_| "{}".to_string()),
+            ))
+            .unwrap(),
+        Err(e) => {
+            tracing::debug!("get_server_info failed for {}: {}", url, e);
+            Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(Body::from(format!(
+                    r#"{{"error":"could not reach server: {}"}}"#,
+                    e.to_string().replace('"', "'")
+                )))
+                .unwrap()
+        }
+    }
+}
+
+fn valid_server_url(u: &str) -> bool {
+    (u.starts_with("http://") || u.starts_with("https://")) && u.len() <= 512 && !u.contains("..")
 }
 
 pub async fn post_reload(Extension(state): Extension<Arc<WebServerState>>) -> impl IntoResponse {

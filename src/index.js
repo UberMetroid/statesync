@@ -127,53 +127,45 @@ async function loadDashboard() {
         }
       });
       usersDiv.appendChild(header);
-      const mapped = (status.mapped_users || []).slice();
-      mapped.sort((a, b) => {
-        const nameA = a.find(u => u !== null) || '';
-        const nameB = b.find(u => u !== null) || '';
-        return nameA.localeCompare(nameB, undefined, { sensitivity: 'base', numeric: true });
+      const serverCount = status.servers.length;
+      const headerRow = document.createElement('div');
+      headerRow.style.cssText = 'display:grid;grid-template-columns:repeat(' + serverCount + ', 1fr);gap:6px;margin-bottom:6px';
+      status.servers.forEach(srv => {
+        const h = document.createElement('div');
+        h.style.cssText = 'text-align:center;color:var(--border);font-weight:600;font-size:12px;padding-bottom:6px;border-bottom:1px solid rgba(0,240,255,0.3);text-transform:uppercase';
+        h.textContent = srv.name;
+        headerRow.appendChild(h);
       });
-      mapped.forEach(group => {
-        const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;padding:6px 0';
-        group.forEach((username, idx) => {
-          const align = idx === 0 ? 'left' : (idx === group.length - 1 ? 'right' : 'center');
+      usersDiv.appendChild(headerRow);
+      const users = (status.users || []).slice().sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
+      );
+      const grid = document.createElement('div');
+      grid.style.cssText = 'display:grid;grid-template-columns:repeat(' + serverCount + ', 1fr);gap:6px';
+      users.forEach(u => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:contents';
+        for (let i = 0; i < serverCount; i++) {
           const cell = document.createElement('div');
-          cell.style.cssText = username ? 'color:#fff;font-size:12px;width:120px;text-align:' + align : 'color:var(--text);opacity:0.3;font-size:12px;width:120px;text-align:' + align;
-          cell.textContent = username || '[ UNMAPPED ]';
+          const filled = u.servers.includes(i);
+          cell.className = 'user-cell' + (filled ? ' filled' : ' empty');
+          cell.textContent = filled ? u.name : '·';
+          cell.title = filled
+            ? u.name + (u.servers.length > 1 ? ' (mapped across ' + u.servers.length + ' servers)' : '')
+            : (status.servers[i] ? status.servers[i].name + ' (no user here)' : '');
           row.appendChild(cell);
-          if (idx < group.length - 1) {
-            const isGreen = username !== null && group.slice(idx + 1).some(u => u !== null);
-            const sep = document.createElement('div');
-            sep.style.cssText = 'flex:1;border-bottom:1px dotted ' + (isGreen ? 'var(--green)' : 'var(--accent)') + ';margin:0 15px;opacity:' + (isGreen ? '0.7' : '0.2');
-            row.appendChild(sep);
-          }
-        });
-        usersDiv.appendChild(row);
-      });
-      const unmapped = [];
-      status.servers.forEach((srv, srvIdx) => {
-        if (srv.users) srv.users.forEach(username => {
-          if (!mapped.some(group => group.some(u => u === username))) {
-            unmapped.push({ username, srvIdx });
-          }
-        });
-      });
-      unmapped.sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: 'base', numeric: true }));
-      unmapped.forEach(({ username, srvIdx }) => {
-        const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;padding:6px 0';
-        for (let i = 0; i < status.servers.length; i++) {
-          const align = i === 0 ? 'left' : (i === status.servers.length - 1 ? 'right' : 'center');
-          const cell = document.createElement('div');
-          cell.style.cssText = 'font-size:12px;width:120px;text-align:' + align + ';color:' + (i === srvIdx ? 'var(--accent)' : 'var(--text);opacity:0.3');
-          cell.textContent = i === srvIdx ? username : '[ UNMAPPED ]';
-          row.appendChild(cell);
-          if (i < status.servers.length - 1) {
-            const sep = document.createElement('div'); sep.style.cssText = 'flex:1;border-bottom:1px dotted var(--accent);margin:0 15px;opacity:0.3';
-            row.appendChild(sep);
-          }
         }
-        usersDiv.appendChild(row);
+        grid.appendChild(row);
       });
+      usersDiv.appendChild(grid);
+      const mappedCount = users.filter(u => u.servers.length > 1).length;
+      const singleCount = users.length - mappedCount;
+      const legend = document.createElement('div');
+      legend.style.cssText = 'margin-top:12px;font-size:11px;color:var(--text);opacity:0.7;display:flex;gap:16px;flex-wrap:wrap';
+      legend.innerHTML = '<span>' + users.length + ' users total</span>' +
+        '<span style="color:var(--border)">' + mappedCount + ' mapped across servers</span>' +
+        '<span style="color:var(--accent)">' + singleCount + ' single-server (need a manual mapping)</span>';
+      usersDiv.appendChild(legend);
     }
     const logsDiv = $('syncLogs');
     if (status.sync_logs && status.sync_logs.length > 0) {
@@ -226,12 +218,63 @@ async function loadDashboard() {
 function openServerModal(idx) {
   editIndex = idx; const isAdd = idx === -1;
   $('modalTitle').innerText = isAdd ? '[ ADD TRANSCEIVER MODULE ]' : '[ EDIT TRANSCEIVER MODULE ]';
-  if (isAdd) { $('serverForm').reset(); $('serverDirection').value = 'both'; } else {
-    const srv = currentConfig.servers[idx]; $('serverType').value = srv.is_emby ? 'emby' : 'jellyfin';
-    $('serverName').value = srv.name; $('serverUrl').value = srv.url;
-    $('serverKey').value = srv.api_key; $('serverDirection').value = srv.sync_direction || 'both';
+  if (isAdd) {
+    $('serverForm').reset();
+    pickType('jellyfin');
+    pickDirection('both');
+  } else {
+    const srv = currentConfig.servers[idx];
+    pickType(srv.is_emby ? 'emby' : 'jellyfin');
+    $('serverName').value = srv.name;
+    $('serverUrl').value = srv.url;
+    $('serverKey').value = srv.api_key;
+    pickDirection(srv.sync_direction || 'both');
   }
   $('serverModal').style.display = 'flex';
+}
+function pickType(t) {
+  $('serverType').value = t;
+  $('btnJellyfin').classList.toggle('active', t === 'jellyfin');
+  $('btnEmby').classList.toggle('active', t === 'emby');
+}
+function pickDirection(d) {
+  $('serverDirection').value = d;
+  document.querySelectorAll('#serverForm .btn-radio[data-dir]').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-dir') === d);
+  });
+}
+async function autoFetchServerName() {
+  const btn = $('autoNameBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  const url = $('serverUrl').value.trim();
+  const api_key = $('serverKey').value;
+  const is_emby = $('serverType').value === 'emby';
+  if (!url) {
+    showToast('ENTER SERVER ADDRESS FIRST');
+    if (btn) { btn.disabled = false; btn.textContent = '↻ AUTO'; }
+    return;
+  }
+  try {
+    const params = new URLSearchParams({ url, is_emby: is_emby ? 'true' : 'false' });
+    if (api_key) params.set('api_key', api_key);
+    const res = await authedFetch('/api/server-info?' + params.toString());
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast('AUTO FILL FAILED: ' + (data.error || res.status));
+      if (btn) { btn.disabled = false; btn.textContent = '↻ AUTO'; }
+      return;
+    }
+    const data = await res.json();
+    if (data.name) {
+      $('serverName').value = data.name;
+      showToast('AUTO FILLED: ' + data.name);
+    } else {
+      showToast('SERVER DID NOT RETURN A NAME');
+    }
+  } catch (err) {
+    showToast('AUTO FILL FAILED: ' + err.message);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '↻ AUTO'; }
 }
 function openSettingsModal() { $('settingsModal').style.display = 'flex'; }
 function closeModal(id) { $(id).style.display = 'none'; }

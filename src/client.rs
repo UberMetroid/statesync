@@ -145,6 +145,28 @@ impl MediaClient {
         builder
     }
 
+    pub async fn get_public_server_info(&self) -> Result<serde_json::Value> {
+        let path = "/System/Info/Public".to_string();
+        let url = self.url_path(&path);
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to fetch /System/Info/Public")?;
+        if !resp.status().is_success() {
+            return Err(anyhow!(
+                "/System/Info/Public returned HTTP {}",
+                resp.status()
+            ));
+        }
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .context("Failed to parse /System/Info/Public response")?;
+        Ok(data)
+    }
+
     pub async fn get_users(&self) -> Result<HashMap<String, String>> {
         let mut map = HashMap::new();
         let mut start_index: usize = 0;
