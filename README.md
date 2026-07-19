@@ -1,95 +1,31 @@
 # ![StateSync](graphics/statesync_icon.jpg) StateSync
 
-StateSync synchronizes watch states and playback progress bi-directionally in real-time between Emby and Jellyfin servers.
+Real-time, bi-directional watch-state sync between Emby and Jellyfin.
 
----
+When a user pauses, resumes, or finishes a show on one server, the same position is written to the other.
 
-## Screenshot
+![Dashboard](graphics/bgL4h.jpg)
 
-![StateSync Dashboard](graphics/bgL4h.jpg)
+## Install — Unraid
 
----
+1. **Docker tab** → **Template Repositories** → add `https://github.com/UberMetroid/statesync`
+2. **Add Container** → pick **statesync** → click **Apply**
+3. Open `http://<your-unraid-ip>:8754` in a browser
+4. Click **+ ADD MODULE** and configure your Emby / Jellyfin servers (URL + API key)
 
-## Features
+Config persists at `/mnt/user/appdata/statesync/config.json` (or whatever path you mapped).
 
-- **Real-Time Sync**: Bi-directional playback position, play state, and session tracking.
-- **Media Matching**: Matches items using metadata identifiers (IMDb and TMDb IDs).
-- **User Mapping**: Automatically pairs users by case-insensitive name, with override groups in settings.
-- **Loop Prevention**: Tracks and caches synced timestamps to block infinite updates.
-- **Resilient Sockets**: Concurrently streams WebSocket events and auto-reconnects on network drops.
-- **Zero-Dependency Agent**: Integrates using standard HTTP and WebSockets; no server plugins required.
-
----
-
-## Security
-
-StateSync is a security-first update starting with v0.18.
-
-### Defaults (safe by default)
-
-- **Web UI binds to `127.0.0.1:8754` (loopback only).** No external access without explicit configuration.
-- **HTTP (`http://`) URLs to upstream Emby/Jellyfin servers are rejected.** Set `allow_insecure_http: true` per-server or `STATESYNC_ALLOW_INSECURE_HTTP=true` env var to override (e.g. for testing on a trusted LAN). HTTPS is strongly recommended in production.
-- **API keys are never logged** and are masked when returned by `GET /api/config`.
-- **`config.json` is gitignored** so secrets never end up in version control. Use `config.example.json` as a template.
-- **External exposure requires authentication.** If you set `STATESYNC_BIND=0.0.0.0:8754` you MUST also set `STATESYNC_WEB_AUTH=bearer:<token>` or the daemon will refuse to start.
-
-### Exposing the UI beyond loopback
-
-1. Generate a token:
-   ```bash
-   openssl rand -hex 32
-   ```
-2. Set `STATESYNC_BIND=0.0.0.0:8754` and `STATESYNC_WEB_AUTH=bearer:<that-token>`.
-3. Open `http://your-host:8754/` and paste the token when prompted. The browser stores it in `localStorage`.
-
-For internet-facing deployments, put StateSync behind a reverse proxy (Caddy, nginx, Traefik) that terminates TLS.
-
-### Rotate exposed keys
-
-If you previously committed a `config.json` containing API keys, **rotate the keys in each server's admin UI immediately** — assume they are public. Then scrub local history with `git-filter-repo --invert-paths --path config.json`.
-
----
-
-## Configuration
-
-StateSync reads its configuration from any of (in priority order):
-
-1. Per-server environment variables: `STATESYNC_SERVER_0_URL`, `STATESYNC_SERVER_0_NAME`, `STATESYNC_SERVER_0_API_KEY`, `STATESYNC_SERVER_0_TYPE` (`emby`|`jellyfin`), `STATESYNC_SERVER_0_DIRECTION` (`both`|`send`|`receive`), `STATESYNC_SERVER_0_INSECURE` (`true` to permit http://). Indices 0..19 are checked.
-2. Legacy two-server environment variables: `STATESYNC_EMBY_*`, `STATESYNC_JELLYFIN_*`.
-3. `config.json` — searched in `/config/config.json`, `/etc/statesync/config.json`, `/app/config.json`, then `./config.json`.
-
-See `config.example.json` for the full schema. Validate a config without running the daemon with `statesync --validate`.
-
-### Environment variables
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `STATESYNC_BIND` | `127.0.0.1:8754` | Listen address. Loopback-only unless `STATESYNC_WEB_AUTH` is also set. |
-| `STATESYNC_WEB_AUTH` | _(unset)_ | `bearer:<token>` required for non-loopback binds. |
-| `STATESYNC_ALLOW_INSECURE_HTTP` | _(unset)_ | `true` to permit `http://` URLs to upstream servers. |
-| `RUST_LOG` | `info` | tracing-subscriber filter. |
-| `TZ` | `UTC` | Container timezone for log timestamps. |
-
----
-
-## Deployment
-
-StateSync runs as a static, zero-dependency container built on Alpine 3.20.
-
-### 1. Docker Compose
-
-Create a `docker-compose.yml` file:
+## Install — Docker Compose
 
 ```yaml
-version: '3.8'
+# compose.yaml
 services:
   statesync:
     image: ghcr.io/ubermetroid/statesync:latest
     container_name: statesync
     restart: unless-stopped
-    # Loopback-only by default. See "Security" above to expose beyond loopback.
     ports:
-      - "127.0.0.1:8754:8754"
+      - "8754:8754"
     volumes:
       - ./config:/config
     environment:
@@ -97,121 +33,106 @@ services:
       - TZ=UTC
 ```
 
-Place your real `config.json` in `./config/` (copy from `config.example.json` and fill in API keys). It is **not** committed.
-
-Run the service:
-
 ```bash
-docker compose up -d
+mkdir -p config && docker compose up -d
+# open http://localhost:8754
 ```
 
-### 2. Docker CLI
+The first run creates a default `config.json` if none exists — open the web UI and add servers.
 
-```bash
-docker run -d \
-  --name statesync \
-  -p 127.0.0.1:8754:8754 \
-  -v /path/to/config:/config \
-  -e RUST_LOG=info \
-  -e TZ=UTC \
-  ghcr.io/ubermetroid/statesync:latest
+## Config
+
+`config.json` lives at `/config/config.json` inside the container (your bind-mount target).
+
+```json
+{
+  "servers": [
+    {
+      "name": "emby",
+      "url": "https://emby.example.com:8096",
+      "api_key": "your-emby-api-key",
+      "is_emby": true,
+      "sync_direction": "both"
+    },
+    {
+      "name": "jellyfin",
+      "url": "https://jellyfin.example.com:8096",
+      "api_key": "your-jellyfin-api-key",
+      "is_emby": false,
+      "sync_direction": "both"
+    }
+  ],
+  "sync_threshold_seconds": 5,
+  "user_mappings": [
+    ["john doe", "john"],
+    ["jane", "jane_doe"]
+  ]
+}
 ```
 
----
-
-## Unraid Setup
-
-To install StateSync on Unraid:
-
-### 1. Add the Template Repository
-
-1. Navigate to the **Docker** tab in the Unraid WebUI.
-2. Scroll to the bottom of the page and locate the **Template Repositories** field.
-3. Paste the following URL:
-
-   ```
-   https://github.com/UberMetroid/statesync
-   ```
-4. Click **Save**.
-
-### 2. Configure and Install Container
-
-1. Click **Add Container** on the Docker page.
-2. In the **Template** dropdown, select **statesync**.
-3. Verify or configure the default parameters:
-   - **Name**: `statesync`
-   - **Repository**: `ghcr.io/ubermetroid/statesync:latest`
-   - **WebUI Port**: `8754` (mapped to host loopback by default; do **not** expose publicly without setting `STATESYNC_WEB_AUTH`).
-    - **Config Volume**: Map `/config` to `/mnt/user/appdata/statesync`.
-    - **Bind Address**: leave `127.0.0.1:8754` unless you also configure **Web UI Bearer Token**.
-    - **Web UI Bearer Token**: only needed if you change the bind address. Generate with `openssl rand -hex 32` and paste it in.
-    - **Timezone (TZ)**: Change from `UTC` to your local timezone.
-4. Click **Apply** to download and start the container.
-
----
-
-## Backfilling history
-
-StateSync's WebSocket path is **forward-only** — it only syncs state when Emby or Jellyfin emits a `Sessions` or `UserDataChanged` event. The **backfill** command reconciles existing watch history between servers.
-
-### Trigger from CLI
-
-```bash
-statesync --backfill [--force] \
-  [--direction=emby-to-jellyfin|jellyfin-to-emby|both] \
-  [--merge=max|source-wins|newest] \
-  [--scope=played|resumable|all] \
-  [--rate=5]
-```
-
-Run with `--backfill --help` for inline help. CLI exits 0 on success, 1 on failures. Progress logged every 2s.
-
-### Trigger from dashboard
-
-Click `BACKFILL` in the header. Choose direction, merge policy, scope, rate, optionally force. Progress polls `/api/backfill/status` every 1s.
-
-### Trigger via HTTP
-
-```bash
-curl -X POST http://127.0.0.1:8754/api/backfill \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"direction":"both","merge":"max","scope":"all","rate":5,"force":false}'
-```
-
-Returns `202 Accepted` with initial status, or `409 Conflict` if already running.
-
-### Force flag
-
-`--force` / `force: true` bypasses the `last_syncs` dedup cache and re-pushes every item. Always uses `source-wins` merge.
-
-Use for:
-- Reconciling two servers that have drifted
-- Applying a new merge policy retroactively
-- Recovering from suspected cache poisoning
-
-### Merge policies
-
-| Policy | Behavior |
+| Field | What |
 |---|---|
-| `max` (default) | `max(source_position, target_position)`; mark played if either side is played. Never reduces progress. |
-| `source-wins` | Always source. Overwrites target. |
-| `newest` | Pick side with newer `LastPlayedDate`. Falls back: source if source missing, target if target missing. |
+| `name` | Friendly label shown in the dashboard |
+| `url` | Server base URL (no trailing slash) |
+| `api_key` | API key from the server's admin UI |
+| `is_emby` | `true` for Emby, `false` for Jellyfin |
+| `sync_direction` | `both` (default), `send` (emit only), or `receive` (accept only) |
+| `sync_threshold_seconds` | Skip redundant updates within this window (default 5) |
+| `user_mappings` | Map user names across servers, one group per line in the UI |
 
-### Limits
+You can also configure everything in the web UI — changes save to this file.
 
-- Rate cap: 1–50 items/sec (default 5)
-- Hard cap: 100,000 items per run
-- One backfill at a time (mutex-guarded)
-- HTTP/WS timeouts: 60s per page, 30s per `update_progress`
-- Cancelling: graceful — completes current item and stops
+## Environment variables
 
-### Auto-start
+| Variable | Default | What |
+|---|---|---|
+| `STATESYNC_BIND` | `0.0.0.0:8754` | Listen address |
+| `STATESYNC_WEB_AUTH` | _(unset)_ | Optional. `bearer:<token>` to require auth on `/api/*`. Generate with `openssl rand -hex 32` |
+| `STATESYNC_SERVER_<N>_URL` | — | Per-server env-var config (alternative to config.json) |
+| `STATESYNC_SERVER_<N>_NAME` | — | |
+| `STATESYNC_SERVER_<N>_API_KEY` | — | |
+| `STATESYNC_SERVER_<N>_TYPE` | — | `emby` or `jellyfin` |
+| `STATESYNC_SERVER_<N>_DIRECTION` | — | `both`, `send`, or `receive` |
+| `STATESYNC_SYNC_THRESHOLD_SECONDS` | `5` | |
+| `STATESYNC_ALLOW_INSECURE_HTTP` | `false` | Set `true` to permit `http://` URLs (testing only) |
+| `STATESYNC_HTTP_RETRY` | `on` | Set `off` to disable HTTP retry on transient errors |
+| `STATESYNC_LOG_RETENTION` | `30` | Number of log entries kept in memory |
+| `RUST_LOG` | `info` | tracing-subscriber filter |
+| `TZ` | `UTC` | Container timezone |
 
-Set `STATESYNC_BACKFILL_ON_START=true` to auto-run on daemon start. Defaults come from `STATESYNC_BACKFILL_DIRECTION`, `STATESYNC_BACKFILL_MERGE`, `STATESYNC_BACKFILL_SCOPE`, `STATESYNC_BACKFILL_RATE` env vars.
+## CLI
 
----
+```bash
+statesync --validate       # load config, test connections, exit 0/1
+statesync --reload         # POST /api/reload to the running daemon
+statesync --tui            # interactive terminal dashboard (1s poll)
+statesync --dry-run        # init caches, report mapping coverage
+statesync --version
+statesync --help
+```
 
-## About
+The TUI shows live server status, active sessions, and recent sync events. Same data as the web UI, in your terminal.
 
-StateSync synchronizes watch states and playback progress bi-directionally in real-time between Emby and Jellyfin servers.
+## Health endpoint
+
+```
+GET /healthz   → 200 OK | 503 Service Unavailable
+```
+
+Unauthenticated. Returns JSON with version, uptime, server count, and connected count. Use this for container health checks, uptime monitoring, etc.
+
+## Security
+
+- **API keys**: stored in `config.json` only. Returned masked by `GET /api/config` (first 4 + last 4 chars).
+- **HTTPS upstream**: required by default. Set `STATESYNC_ALLOW_INSECURE_HTTP=true` for LAN testing only.
+- **Loopback / non-loopback**: by default the daemon listens on `0.0.0.0:8754` so the web UI is reachable on the LAN. Set `STATESYNC_WEB_AUTH=bearer:<token>` to require a token. For internet exposure, put the daemon behind a reverse proxy (Caddy / Traefik / nginx) that handles TLS.
+
+## How it works
+
+For each server pair, the daemon opens a WebSocket to the source server and listens for `Sessions` and `UserDataChanged` events. When a user's playback position or `Played` flag changes, it resolves the matching item on the target server (by IMDb / TMDb ID), maps the user, and POSTs the update. Items never synced are resolved lazily; a small per-(user, item) throttle skips redundant updates within the threshold window.
+
+Forward-only — historical watch state isn't backfilled. If you have a big library and want one-time reconciliation, run your own offline import script (this project doesn't ship one).
+
+## License
+
+MIT

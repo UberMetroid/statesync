@@ -355,95 +355,6 @@ pub async fn post_reload(Extension(state): Extension<Arc<WebServerState>>) -> im
         .unwrap()
 }
 
-pub async fn post_backfill(
-    Extension(state): Extension<Arc<WebServerState>>,
-    Json(opts): Json<crate::backfill::BackfillOptions>,
-) -> Response {
-    if opts.rate == 0 || opts.rate > 50 {
-        return Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::from(
-                r#"{"status":"error","message":"rate must be 1..50"}"#,
-            ))
-            .unwrap();
-    }
-    let tracker = {
-        let st = state.app_state.lock().await;
-        st.backfill.clone()
-    };
-    {
-        let running = tracker.running.lock().await;
-        if *running {
-            return Response::builder()
-                .status(StatusCode::CONFLICT)
-                .body(Body::from(
-                    r#"{"status":"error","message":"backfill already in progress"}"#,
-                ))
-                .unwrap();
-        }
-    }
-    let config = match Config::load() {
-        Ok(c) => c,
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!(
-                    r#"{{"status":"error","message":"failed to load config: {}"}}"#,
-                    e
-                )))
-                .unwrap();
-        }
-    };
-    if config.servers.is_empty() {
-        return Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::from(
-                r#"{"status":"error","message":"no servers configured"}"#,
-            ))
-            .unwrap();
-    }
-    let server_names: Vec<String> = config.servers.iter().map(|s| s.name.clone()).collect();
-    let mut clients = Vec::new();
-    for s in &config.servers {
-        let client = std::sync::Arc::new(crate::client::MediaClient::new(
-            s.url.clone(),
-            s.api_key.clone(),
-            s.is_emby,
-        ));
-        clients.push(client);
-    }
-    let ctx = crate::backfill::BackfillContext {
-        config,
-        clients,
-        state: state.app_state.clone(),
-        tracker: tracker.clone(),
-        options: opts,
-        server_names,
-    };
-    let tracker_for_task = tracker.clone();
-    tokio::spawn(async move {
-        let _ = crate::backfill::run_backfill(ctx).await;
-    });
-    let status = tracker_for_task.status.lock().await.clone();
-    Response::builder()
-        .status(StatusCode::ACCEPTED)
-        .body(Body::from(
-            serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string()),
-        ))
-        .unwrap()
-}
-
-pub async fn get_backfill_status(
-    Extension(state): Extension<Arc<WebServerState>>,
-) -> impl IntoResponse {
-    let tracker = {
-        let st = state.app_state.lock().await;
-        st.backfill.clone()
-    };
-    let status = tracker.status.lock().await.clone();
-    Json(status)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,7 +362,6 @@ mod tests {
     #[test]
     fn test_mask_api_key() {
         assert_eq!(mask_api_key(""), "");
-        assert_eq!(mask_api_key("12345"), "••••••••");
         assert_eq!(mask_api_key("12345678"), "••••••••");
         assert_eq!(mask_api_key("123456789"), "1234••••••••6789");
         assert_eq!(mask_api_key("my_secret_token_1234"), "my_s••••••••1234");

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore};
 use tracing::{error, info, warn};
@@ -7,13 +7,16 @@ use crate::client::MediaClient;
 use crate::config::Config;
 use crate::state::{AppState, SyncHistoryValue};
 
-static SYNC_SEMAPHORE: once_cell::sync::Lazy<Semaphore> = once_cell::sync::Lazy::new(|| {
-    let permits = std::env::var("STATESYNC_MAX_SYNC_SPAWNS")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(8);
-    Semaphore::new(permits.max(1))
-});
+fn sync_semaphore() -> &'static Semaphore {
+    static S: OnceLock<Semaphore> = OnceLock::new();
+    S.get_or_init(|| {
+        let permits = std::env::var("STATESYNC_MAX_SYNC_SPAWNS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(8);
+        Semaphore::new(permits.max(1))
+    })
+}
 
 pub async fn sync_progress_to_targets(
     user_name: &str,
@@ -27,7 +30,7 @@ pub async fn sync_progress_to_targets(
     config: &Config,
     source_client: &Arc<MediaClient>,
 ) {
-    let _permit = SYNC_SEMAPHORE.acquire().await;
+    let _permit = sync_semaphore().acquire().await;
     let user_lower = user_name.to_lowercase();
 
     let (imdb_id, tmdb_id) = {
@@ -178,8 +181,6 @@ pub async fn sync_progress_to_targets(
                         .tmdb_to_id
                         .insert(tmdb_id.clone(), "[ NOT_FOUND ]".to_string());
                 }
-                state.caches[target_index].last_negative_cache =
-                    Some(Instant::now() + Duration::from_secs(3600));
             } else if let Some(err) = resolved_err {
                 warn!(
                     "Target '{}' lookup error (will not poison cache): {}",

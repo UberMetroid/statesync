@@ -12,15 +12,14 @@ use tokio::sync::{Mutex, broadcast, mpsc};
 use tracing::{error, info, warn};
 
 use statesync::{
-    backfill::{self, BackfillContext, BackfillOptions, Direction, MergePolicy, Scope},
     client::MediaClient,
-    config::{Config, is_loopback_bind, redacted_url},
+    config::{Config, redacted_url},
     state::{AppState, init_server_cache},
     web::{WebServerState, create_router},
     websocket::{handle_websocket_loop, make_ws_url},
 };
 
-const DEFAULT_BIND: &str = "127.0.0.1:8754";
+const DEFAULT_BIND: &str = "0.0.0.0:8754";
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -66,9 +65,6 @@ async fn main() -> Result<()> {
             "--dry-run" => {
                 return dry_run().await;
             }
-            "--backfill" => {
-                return run_backfill_cli(&args).await;
-            }
             _ => {
                 eprintln!(
                     "Unknown argument: {}. Use --help to see available commands.",
@@ -85,13 +81,14 @@ async fn main() -> Result<()> {
     let bind_addr = resolve_bind_addr();
     let web_auth = resolve_web_auth();
 
-    if !is_loopback_bind(&bind_addr) && web_auth.is_none() {
+    if web_auth.is_some() {
+        eprintln!("STATESYNC_WEB_AUTH is set; bearer token required for /api/* endpoints.");
+    } else {
         eprintln!(
-            "Refusing to start: bind address '{}' is not loopback and no STATESYNC_WEB_AUTH is configured.",
+            "STATESYNC_WEB_AUTH not set; /api/* endpoints are open on {}. \
+             Set STATESYNC_WEB_AUTH=bearer:<token> to require authentication.",
             bind_addr
         );
-        eprintln!("Set STATESYNC_WEB_AUTH=bearer:<token> or bind to 127.0.0.1 (the default).");
-        std::process::exit(2);
     }
 
     let app_state = Arc::new(Mutex::new(AppState::new(vec![])));
@@ -114,11 +111,7 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("Failed to bind web UI server to {}", bind_addr))?;
 
-    if web_auth.is_some() {
-        info!("Web UI listening on http://{} (auth required)", bind_addr);
-    } else {
-        info!("Web UI listening on http://{} (loopback only)", bind_addr);
-    }
+    info!("Web UI listening on http://{}", bind_addr);
 
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
@@ -303,7 +296,6 @@ async fn init_clients_parallel(
                             imdb_to_id: std::collections::HashMap::new(),
                             tmdb_to_id: std::collections::HashMap::new(),
                             id_to_providers: std::collections::HashMap::new(),
-                            last_negative_cache: None,
                         },
                     ))
                 }
@@ -362,7 +354,6 @@ fn print_help() {
     println!("  --reload         Trigger reload of config.json on the running service");
     println!("  --tui            Launch the interactive terminal dashboard");
     println!("  --dry-run        Load config, init caches, run mapping dry-run; exit 0/1");
-    println!("  --backfill       Run historical watch-state backfill (see --backfill --help)");
     println!();
     println!("Environment Variables:");
     println!("  STATESYNC_BIND                 Listen address (default: 127.0.0.1:8754)");
@@ -379,170 +370,8 @@ fn print_help() {
     println!("  STATESYNC_HTTP_RETRY           'off' to disable retry with backoff.");
     println!("  STATESYNC_MAX_SYNC_SPAWNS      Max concurrent sync tasks per source (default 8).");
     println!("  STATESYNC_LOG_RETENTION        Number of log entries kept in memory (default 30).");
-    println!(
-        "  STATESYNC_BACKFILL_DIRECTION   emby-to-jellyfin | jellyfin-to-emby | both (default)."
-    );
-    println!("  STATESYNC_BACKFILL_MERGE       max (default) | source-wins | newest.");
-    println!("  STATESYNC_BACKFILL_SCOPE       played | resumable | all (default).");
-    println!("  STATESYNC_BACKFILL_RATE        Items/sec, 1..50 (default 5).");
-    println!(
-        "  STATESYNC_BACKFILL_ON_START    'true' to run backfill automatically on daemon start."
-    );
     println!("  RUST_LOG                       tracing log filter (overrides default 'info').");
     println!("  TZ                             Container timezone.");
-}
-
-fn parse_backfill_args(args: &[String]) -> BackfillOptions {
-    let mut opts = BackfillOptions::from_env_or_default();
-    let mut i = 2;
-    while i < args.len() {
-        let a = &args[i];
-        if a == "--force" {
-            opts.force = true;
-        } else if let Some(v) = a.strip_prefix("--direction=") {
-            opts.direction = match v {
-                "emby-to-jellyfin" => Direction::EmbyToJellyfin,
-                "jellyfin-to-emby" => Direction::JellyfinToEmby,
-                _ => Direction::Both,
-            };
-        } else if let Some(v) = a.strip_prefix("--merge=") {
-            opts.merge = match v {
-                "max" => MergePolicy::Max,
-                "source-wins" => MergePolicy::SourceWins,
-                "newest" => MergePolicy::Newest,
-                _ => opts.merge,
-            };
-        } else if let Some(v) = a.strip_prefix("--scope=") {
-            opts.scope = match v {
-                "played" => Scope::Played,
-                "resumable" => Scope::Resumable,
-                _ => Scope::All,
-            };
-        } else if let Some(v) = a.strip_prefix("--rate=") {
-            if let Ok(n) = v.parse::<u32>() {
-                opts.rate = n.clamp(1, 50);
-            }
-        } else if a == "--help" || a == "-h" {
-            println!(
-                "Usage: statesync --backfill [--force] [--direction=...] [--merge=...] [--scope=...] [--rate=N]"
-            );
-            println!();
-            println!("Options:");
-            println!(
-                "  --force                    Ignore last_syncs cache; re-push all items (uses source-wins)."
-            );
-            println!(
-                "  --direction=<d>            emby-to-jellyfin | jellyfin-to-emby | both (default both)."
-            );
-            println!("  --merge=<m>                max | source-wins | newest (default max).");
-            println!("  --scope=<s>                played | resumable | all (default all).");
-            println!("  --rate=<n>                 Items/sec, 1..50 (default 5).");
-            std::process::exit(0);
-        } else {
-            eprintln!("Unknown --backfill argument: {}", a);
-            std::process::exit(2);
-        }
-        i += 1;
-    }
-    opts
-}
-
-async fn run_backfill_cli(args: &[String]) -> Result<()> {
-    init_logging();
-    let opts = parse_backfill_args(args);
-    let config = Config::load()?;
-    if config.servers.is_empty() {
-        eprintln!("No servers configured.");
-        std::process::exit(1);
-    }
-    let server_names: Vec<String> = config.servers.iter().map(|s| s.name.clone()).collect();
-    let mut clients = Vec::new();
-    let mut caches = Vec::new();
-    for s in &config.servers {
-        let client = Arc::new(MediaClient::new(
-            s.url.clone(),
-            s.api_key.clone(),
-            s.is_emby,
-        ));
-        match init_server_cache(&s.name, &client).await {
-            Ok(c) => {
-                clients.push(client);
-                caches.push(c);
-            }
-            Err(e) => {
-                eprintln!("Failed to init cache for '{}': {}", s.name, e);
-                std::process::exit(1);
-            }
-        }
-    }
-    let state = Arc::new(Mutex::new(AppState::new(caches)));
-    let tracker = state.lock().await.backfill.clone();
-
-    println!(
-        "Starting backfill: direction={:?}, merge={:?}, scope={:?}, force={}, rate={}/s",
-        opts.direction, opts.merge, opts.scope, opts.force, opts.rate
-    );
-    let ctx = BackfillContext {
-        config,
-        clients,
-        state: state.clone(),
-        tracker: tracker.clone(),
-        options: opts,
-        server_names,
-    };
-    let last_print = Arc::new(Mutex::new(std::time::Instant::now()));
-    let printer = {
-        let tracker = tracker.clone();
-        let last_print = last_print.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                let status = tracker.status.lock().await.clone();
-                if status.state != backfill::BackfillState::Running {
-                    if status.state != backfill::BackfillState::Idle {
-                        println!(
-                            "[{:?}] done: processed={} succeeded={} skipped={} failed={}",
-                            status.state,
-                            status.processed,
-                            status.succeeded,
-                            status.skipped,
-                            status.failed
-                        );
-                    }
-                    break;
-                }
-                let now = std::time::Instant::now();
-                let mut last = last_print.lock().await;
-                if now.duration_since(*last).as_secs() >= 2 {
-                    println!(
-                        "[running] {}/{} processed (succeeded={} skipped={} failed={}) pair={}",
-                        status.processed,
-                        status.total_pairs,
-                        status.succeeded,
-                        status.skipped,
-                        status.failed,
-                        status.current_pair.as_deref().unwrap_or("?"),
-                    );
-                    *last = now;
-                }
-            }
-        })
-    };
-
-    let status = backfill::run_backfill(ctx).await;
-    let _ = printer.await;
-
-    println!(
-        "Backfill {:?}: processed={} succeeded={} skipped={} failed={}",
-        status.state, status.processed, status.succeeded, status.skipped, status.failed
-    );
-    if !status.errors.is_empty() {
-        println!("Last error: {}", status.last_error.as_deref().unwrap_or(""));
-    }
-    if status.state == backfill::BackfillState::Failed {
-        std::process::exit(1);
-    }
-    Ok(())
 }
 
 async fn trigger_reload() -> Result<()> {

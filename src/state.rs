@@ -1,19 +1,15 @@
-use crate::backfill::BackfillTracker;
 use crate::client::MediaClient;
 use anyhow::Result;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct ServerCache {
     pub name: String,
-    pub users: HashMap<String, String>,
-    pub imdb_to_id: HashMap<String, String>,
-    pub tmdb_to_id: HashMap<String, String>,
-    pub id_to_providers: HashMap<String, (String, String)>,
-    #[allow(dead_code)]
-    pub last_negative_cache: Option<Instant>,
+    pub users: HashMap<String, String>, // username (lowercase) -> UserId
+    pub imdb_to_id: HashMap<String, String>, // ImdbId -> ItemId
+    pub tmdb_to_id: HashMap<String, String>, // TmdbId -> ItemId
+    pub id_to_providers: HashMap<String, (String, String)>, // ItemId -> (ImdbId, TmdbId)
 }
 
 #[derive(Debug, Clone)]
@@ -40,7 +36,6 @@ pub struct AppState {
     pub sync_logs: Vec<SyncLogEntry>,
     pub active_sessions: HashMap<(String, String), (String, String, f64, bool, String)>,
     pub log_retention: usize,
-    pub backfill: Arc<BackfillTracker>,
 }
 
 fn default_log_retention() -> usize {
@@ -62,7 +57,6 @@ impl AppState {
             sync_logs: Vec::new(),
             active_sessions: HashMap::new(),
             log_retention: retention,
-            backfill: Arc::new(BackfillTracker::default()),
         }
     }
 
@@ -130,7 +124,6 @@ pub async fn init_server_cache(name: &str, client: &MediaClient) -> Result<Serve
         imdb_to_id: imdb_flat,
         tmdb_to_id: tmdb_flat,
         id_to_providers,
-        last_negative_cache: None,
     })
 }
 

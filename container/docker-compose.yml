@@ -5,14 +5,14 @@ services:
     image: ghcr.io/ubermetroid/statesync:latest
     container_name: statesync
     restart: unless-stopped
-    # Loopback-only by default. If you need LAN access, change to "0.0.0.0:8754:8754"
-    # and set STATESYNC_WEB_AUTH=bearer:<token>. See README for details.
+    # Binds to 0.0.0.0 by default — accessible on the LAN.
+    # For loopback-only, change to "127.0.0.1:8754:8754"
     ports:
-      - "127.0.0.1:8754:8754"
+      - "8754:8754"
     volumes:
       - ./config:/config
     environment:
       - RUST_LOG=info
       - TZ=UTC
-      # - STATESYNC_BIND=0.0.0.0:8754
+      # Optional bearer-token auth for the web UI:
       # - STATESYNC_WEB_AUTH=bearer:replace-with-`openssl rand -hex 32`
