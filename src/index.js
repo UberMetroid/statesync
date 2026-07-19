@@ -82,6 +82,7 @@ async function loadDashboard() {
       activeDiv.textContent = '';
       status.active_sessions.forEach(sess => {
         const mins = Math.floor(sess.position / 60); const secs = Math.floor(sess.position % 60).toString().padStart(2, '0');
+        const durationStr = mins + ':' + secs;
         const row = document.createElement('div'); row.className = 'server-row';
         if (sess.poster_url) { row.style.borderColor = 'var(--accent)'; row.style.padding = '6px 18px'; }
         const left = document.createElement('div'); left.className = 'server-info';
@@ -94,12 +95,19 @@ async function loadDashboard() {
         }
         const meta = document.createElement('div');
         const itemEl = document.createElement('div'); itemEl.style.cssText = 'font-weight:600;color:#fff'; itemEl.textContent = sess.item;
-        const userEl = document.createElement('div'); userEl.style.cssText = 'font-size:11px;color:var(--text)'; userEl.textContent = 'USER: ' + sess.user + ' | SOURCE: ' + sess.server;
+        
+        const userEl = document.createElement('div'); userEl.style.cssText = 'font-size:11px;color:var(--text)';
+        if (sess.is_paused) {
+          userEl.textContent = sess.user + ' paused on ' + sess.server + '. Position is locked at ' + durationStr + '.';
+        } else {
+          userEl.textContent = sess.user + ' is watching on ' + sess.server + '. Progress is actively syncing.';
+        }
+        
         meta.appendChild(itemEl); meta.appendChild(userEl);
         left.appendChild(meta);
         const right = document.createElement('div'); right.style.cssText = 'display:flex;align-items:center;gap:10px';
         const badge = document.createElement('span'); badge.className = 'badge'; badge.style.cssText = 'border-color:var(--accent);color:var(--accent)';
-        badge.textContent = mins + ':' + secs;
+        badge.textContent = durationStr;
         right.appendChild(badge);
         if (sess.is_paused) {
           const p = document.createElement('span'); p.style.cssText = 'font-size:11px;color:var(--accent)'; p.textContent = '[ PAUSED ]';
@@ -110,16 +118,16 @@ async function loadDashboard() {
       });
     } else {
       activeDiv.textContent = '';
-      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO ACTIVE STREAMS DETECTED';
+      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'ALL QUIET. STATESYNC IS WAITING FOR SOMEONE TO PLAY A MOVIE OR SHOW.';
       activeDiv.appendChild(empty);
     }
     if (currentConfig.servers.length === 0) {
       usersDiv.textContent = '';
       const empty2 = document.createElement('div');
       empty2.style.cssText = 'padding:20px;text-align:center;color:var(--accent);font-size:13px';
-      empty2.innerHTML = 'No media servers yet. ' +
+      empty2.innerHTML = 'StateSync is resting. ' +
         '<a href="#" onclick="openServerModal(-1); return false;" ' +
-        'style="color:var(--border);text-decoration:underline">Add your first one</a>.';
+        'style="color:var(--border);text-decoration:underline">Connect your media servers</a> to start bridging watch states.';
       usersDiv.appendChild(empty2);
     }
     const usersDiv = $('syncedUsers');
@@ -153,8 +161,10 @@ async function loadDashboard() {
           cell.className = 'user-cell' + (filled ? ' filled' : ' empty');
           cell.textContent = filled ? u.name : '·';
           cell.title = filled
-            ? 'user: ' + u.name + (u.servers.length > 1 ? ' (mapped across ' + u.servers.length + ' servers)' : '')
-            : (status.servers[i] ? 'server: ' + status.servers[i].name + ' (no user here)' : '');
+            ? (u.servers.length > 1 
+                ? u.name + ' is mapped. Watch status changes will mirror in real-time.' 
+                : u.name + ' only exists on ' + status.servers[i].name + '. Playback will not sync unless mapped in settings.')
+            : (status.servers[i] ? status.servers[i].name + ' has no user named ' + u.name + ' here.' : '');
           row.appendChild(cell);
         }
         grid.appendChild(row);
@@ -217,8 +227,14 @@ async function loadDashboard() {
         const age = Date.now() - new Date(fs.finished_at).getTime();
         const ago = formatAgo(age);
         const statusColor = fs.state === 'completed' ? 'var(--green)' : 'var(--red)';
-        left.innerHTML = 'Last full sync: <span style="color:' + statusColor + '">' + fs.state.toUpperCase() + '</span> · ' + ago +
-          ' · ' + fs.processed + ' items (ok=' + fs.succeeded + ' skip=' + fs.skipped + ' fail=' + fs.failed + ')';
+        
+        let story = 'Last full sync <span style="color:' + statusColor + '">' + fs.state.toUpperCase() + '</span> ' + ago + '. ';
+        story += 'StateSync scanned ' + fs.processed + ' watch history items, successfully aligning ' + fs.succeeded + ' plays';
+        if (fs.skipped > 0) story += ', skipping ' + fs.skipped;
+        if (fs.failed > 0) story += ', and encountering ' + fs.failed + ' errors';
+        story += '.';
+        
+        left.innerHTML = story;
         banner.style.borderColor = 'rgba(255,255,255,0.1)';
         banner.style.background = 'rgba(0,0,0,0.2)';
       } else if (fs.started_at) {

@@ -381,13 +381,8 @@ fn print_help() {
     );
     println!("  STATESYNC_SERVER_<N>_*         Per-server env-var config (see README).");
     println!("  STATESYNC_SYNC_THRESHOLD_SECONDS   Sync threshold (default 5).");
-    println!("  STATESYNC_LOG_FORMAT           'text' (default) or 'json'.");
     println!("  STATESYNC_HTTP_RETRY           'off' to disable retry with backoff.");
-    println!("  STATESYNC_MAX_SYNC_SPAWNS      Max concurrent sync tasks per source (default 8).");
     println!("  STATESYNC_LOG_RETENTION        Number of log entries kept in memory (default 30).");
-    println!(
-        "  STATESYNC_FORCE_DIRECTION      emby-to-jellyfin | jellyfin-to-emby | both (default)."
-    );
     println!("  STATESYNC_FORCE_RATE           Items/sec during --sync-force, 1..50 (default 5).");
     println!("  RUST_LOG                       tracing log filter (overrides default 'info').");
     println!("  TZ                             Container timezone.");
@@ -593,7 +588,7 @@ fn draw_tui_from_json(status: &serde_json::Value) {
     println!("\x1B[1m\x1B[33m[ SERVERS AND STATUS ]\x1B[0m");
     if let Some(servers) = status.get("servers").and_then(|v| v.as_array()) {
         if servers.is_empty() {
-            println!("  No servers configured or loading caches...");
+            println!("  StateSync is resting. Connect your media servers to start bridging watch states.");
         } else {
             for s in servers {
                 let name = s.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
@@ -612,7 +607,7 @@ fn draw_tui_from_json(status: &serde_json::Value) {
                     "\x1B[31m"
                 };
                 println!(
-                    "  • \x1B[1m{:<12}\x1B[0m: {}{:<10}\x1B[0m ({} Users | {} Cached Media Items)",
+                    "  • \x1B[1m{:<12}\x1B[0m: {}{:<13}\x1B[0m ({} Users | {} Cached Media Items)",
                     name, status_color, ws_status, users_count, media_count
                 );
             }
@@ -622,10 +617,10 @@ fn draw_tui_from_json(status: &serde_json::Value) {
     }
     println!();
 
-    println!("\x1B[1m\x1B[33m[ ACTIVE SESSIONS ]\x1B[0m");
+    println!("\x1B[1m\x1B[33m[ ACTIVE STREAMS ]\x1B[0m");
     if let Some(sessions) = status.get("active_sessions").and_then(|v| v.as_array()) {
         if sessions.is_empty() {
-            println!("  No active playback streams detected.");
+            println!("  All quiet. StateSync is waiting for someone to play a movie or show.");
         } else {
             for sess in sessions {
                 let server = sess
@@ -651,14 +646,25 @@ fn draw_tui_from_json(status: &serde_json::Value) {
                 } else {
                     "\x1B[33m⏸ Paused\x1B[0m"
                 };
-                println!(
-                    "  • \x1B[1m{:<8}\x1B[0m - User \x1B[1m{:<12}\x1B[0m: {} - progress: {:.1}s ({})",
-                    server, user, item, position, play_icon
-                );
+                let mins = (position / 60.0).floor() as u32;
+                let secs = (position % 60.0).floor() as u32;
+                let duration_str = format!("{:02}:{:02}", mins, secs);
+
+                if !is_paused {
+                    println!(
+                        "  • {} {} is watching '{}' on {} (actively syncing)",
+                        play_icon, user, item, server
+                    );
+                } else {
+                    println!(
+                        "  • {} {} paused '{}' on {} (locked at {})",
+                        play_icon, user, item, server, duration_str
+                    );
+                }
             }
         }
     } else {
-        println!("  Reading active sessions...");
+        println!("  Reading active streams...");
     }
     println!();
 
