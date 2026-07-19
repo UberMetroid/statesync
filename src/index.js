@@ -259,7 +259,7 @@ async function loadDashboard() {
         const bar = $('fsProgressBar');
         if (bar) { bar.value = pct; bar.max = 100; }
         const txt = $('fsProgressText');
-        if (txt) txt.textContent = pct + '% · ' + processed + ' / ' + totalPairs + ' pairs (' + rate + '/s · ' + formatAgo(elapsed * 1000) + ')';
+        if (txt) txt.textContent = pct + '% · ' + processed + ' / ' + totalPairs + ' items (' + rate + '/s · ' + formatAgo(elapsed * 1000) + ')';
         const cu = $('fsCurrentUser');
         if (cu) cu.textContent = fs.current_user ? 'currently syncing: ' + fs.current_user : '';
       } else {

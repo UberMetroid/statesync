@@ -450,6 +450,22 @@ impl MediaClient {
         }
         Ok(out)
     }
+
+    pub async fn get_user_played_items_count(&self, user_id: &str) -> Result<u64> {
+        let path = format!(
+            "/Users/{}/Items?Recursive=true&Filters=IsPlayed=true&Limit=0",
+            user_id
+        );
+        let url = self.url_path(&path);
+        let resp = send_with_retry(
+            self.add_auth_headers(self.client.get(&url)),
+            "get_user_played_items_count",
+        )
+        .await?;
+        let data: serde_json::Value = resp.json().await?;
+        let count = data.get("TotalRecordCount").and_then(|v| v.as_u64()).unwrap_or(0);
+        Ok(count)
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]

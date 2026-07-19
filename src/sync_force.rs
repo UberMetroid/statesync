@@ -220,9 +220,17 @@ async fn run_force_sync_inner(
         result
     };
 
+    let mut total_items = 0;
+    for (src_idx, _, src_user_id, _) in &pairs {
+        let source_client = clients[*src_idx].clone();
+        if let Ok(count) = source_client.get_user_played_items_count(src_user_id).await {
+            total_items += count;
+        }
+    }
+
     {
         let mut status = tracker.status.lock().await;
-        status.total_pairs = pairs.len() as u64;
+        status.total_pairs = if total_items > 0 { total_items } else { pairs.len() as u64 };
     }
 
     info!(
