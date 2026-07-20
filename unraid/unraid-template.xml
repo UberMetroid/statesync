@@ -12,7 +12,7 @@
   <Name>statesync</Name>
   <Repository>ghcr.io/studio2201/statesync:latest</Repository>
   <Registry>https://github.com/studio2201/statesync/pkgs/container/statesync</Registry>
-  <Network>bridge</Network>
+  <Network>host</Network>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
   <Support>https://github.com/studio2201/statesync/issues</Support>
