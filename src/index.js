@@ -69,9 +69,9 @@ async function loadDashboard() {
         }
         const editBtn = document.createElement('button'); editBtn.className = 'btn'; editBtn.textContent = '[ EDIT ]';
         editBtn.addEventListener('click', () => openServerModal(idx));
-        const wipeBtn = document.createElement('button'); wipeBtn.className = 'btn btn-danger'; wipeBtn.textContent = '[ WIPE ]';
-        wipeBtn.addEventListener('click', () => deleteServer(idx));
-        right.appendChild(metaSpan); right.appendChild(editBtn); right.appendChild(wipeBtn);
+        const removeBtn = document.createElement('button'); removeBtn.className = 'btn btn-danger'; removeBtn.textContent = '[ REMOVE ]';
+        removeBtn.addEventListener('click', () => deleteServer(idx));
+        right.appendChild(metaSpan); right.appendChild(editBtn); right.appendChild(removeBtn);
 
         row.appendChild(left); row.appendChild(right);
         listDiv.appendChild(row);
@@ -381,7 +381,14 @@ $('serverForm').addEventListener('submit', async (e) => {
   if (editIndex === -1) { currentConfig.servers.push(s); } else { currentConfig.servers[editIndex] = s; }
   closeModal('serverModal'); await saveConfig();
 });
-async function deleteServer(idx) { currentConfig.servers.splice(idx, 1); await saveConfig(); }
+async function deleteServer(idx) {
+  const srv = currentConfig.servers[idx];
+  if (!confirm(`Are you sure you want to remove the server "${srv.name}"?`)) {
+    return;
+  }
+  currentConfig.servers.splice(idx, 1);
+  await saveConfig();
+}
 async function saveSettings() {
   currentConfig.sync_threshold_seconds = parseInt($('syncThreshold').value);
   const mappingsLines = $('cfgUserMappings').value.split('\n');

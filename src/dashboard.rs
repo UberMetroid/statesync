@@ -109,8 +109,8 @@ pub fn render_dashboard() -> Markup {
                                 }
                                 div style="display:flex;justify-content:space-between;margin-top:20px;" {
                                     button type="submit" class="btn" { "[ SAVE ]" }
-                                    button type="button" class="btn btn-accent" onclick="testConnection()" { "[ TEST LINK ]" }
-                                    button type="button" class="btn btn-danger" onclick="closeModal('serverModal')" { "[ ABORT ]" }
+                                    button type="button" class="btn btn-accent" onclick="testConnection()" { "[ TEST CONNECTION ]" }
+                                    button type="button" class="btn btn-danger" onclick="closeModal('serverModal')" { "[ CANCEL ]" }
                                 }
                             }
                         }
@@ -143,7 +143,7 @@ pub fn render_dashboard() -> Markup {
                             }
                             div style="display:flex;gap:12px;margin-top:20px;" {
                                 button class="btn" onclick="saveSettings()" { "[ SAVE ]" }
-                                button class="btn btn-danger" onclick="closeModal('settingsModal')" { "[ ABORT ]" }
+                                button class="btn btn-danger" onclick="closeModal('settingsModal')" { "[ CANCEL ]" }
                             }
                         }
                     }
