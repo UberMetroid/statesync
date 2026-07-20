@@ -49,3 +49,124 @@ async fn test_init_clients_parallel_connection_failure() {
     assert_eq!(error_log.level, "error");
     assert!(error_log.message.contains("Failed to connect / init cache for 'failing_server'"));
 }
+
+static CLI_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn test_resolve_bind_addr() {
+    let _guard = CLI_TEST_LOCK.lock().unwrap();
+    unsafe {
+        std::env::set_var("STATESYNC_BIND", "127.0.0.1:9000");
+    }
+    assert_eq!(super::helpers::resolve_bind_addr(), "127.0.0.1:9000");
+
+    unsafe {
+        std::env::remove_var("STATESYNC_BIND");
+    }
+    assert_eq!(super::helpers::resolve_bind_addr(), super::helpers::DEFAULT_BIND);
+}
+
+#[test]
+fn test_resolve_web_auth() {
+    let _guard = CLI_TEST_LOCK.lock().unwrap();
+    unsafe {
+        std::env::set_var("STATESYNC_WEB_AUTH", "bearer:secret");
+    }
+    assert_eq!(super::helpers::resolve_web_auth(), Some("bearer:secret".to_string()));
+
+    unsafe {
+        std::env::set_var("STATESYNC_WEB_AUTH", "none");
+    }
+    assert_eq!(super::helpers::resolve_web_auth(), None);
+
+    unsafe {
+        std::env::set_var("STATESYNC_WEB_AUTH", "   ");
+    }
+    assert_eq!(super::helpers::resolve_web_auth(), None);
+
+    unsafe {
+        std::env::remove_var("STATESYNC_WEB_AUTH");
+    }
+    assert_eq!(super::helpers::resolve_web_auth(), None);
+}
+
+#[test]
+fn test_print_help() {
+    // Just verify it prints and doesn't panic
+    super::helpers::print_help();
+}
+
+#[test]
+fn test_parse_sync_force_args() {
+    use statesync::sync_force::Direction;
+
+    let args1 = vec!["binary".to_string(), "--sync-force".to_string(), "--direction=emby-to-jellyfin".to_string()];
+    assert_eq!(super::force_sync::parse_sync_force_args(&args1), Direction::EmbyToJellyfin);
+
+    let args2 = vec!["binary".to_string(), "--sync-force".to_string(), "--direction=jellyfin-to-emby".to_string()];
+    assert_eq!(super::force_sync::parse_sync_force_args(&args2), Direction::JellyfinToEmby);
+
+    let args3 = vec!["binary".to_string(), "--sync-force".to_string(), "--direction=both".to_string()];
+    assert_eq!(super::force_sync::parse_sync_force_args(&args3), Direction::Both);
+}
+
+#[test]
+fn test_draw_tui_from_json() {
+    let status_json = serde_json::json!({
+        "servers": [
+            {
+                "name": "Server1",
+                "websocket_status": "Connected",
+                "users_count": 5,
+                "media_count": 100
+            },
+            {
+                "name": "Server2",
+                "websocket_status": "Offline",
+                "users_count": 0,
+                "media_count": 0
+            }
+        ],
+        "active_sessions": [
+            {
+                "server": "Server1",
+                "user": "Alice",
+                "item": "Test Movie",
+                "position": 120.0,
+                "is_paused": false
+            }
+        ],
+        "sync_logs": [
+            {
+                "timestamp": "12:00:00",
+                "level": "success",
+                "message": "Synced watch state"
+            }
+        ]
+    });
+    super::tui::draw_tui_from_json(&status_json);
+}
+
+#[tokio::test]
+async fn test_trigger_reload_success() {
+    let _guard = CLI_TEST_LOCK.lock().unwrap();
+    let mut server = mockito::Server::new_async().await;
+    let mock_call = server.mock("POST", "/api/reload")
+        .with_status(200)
+        .create_async().await;
+
+    unsafe {
+        std::env::set_var("STATESYNC_RELOAD_URL", format!("{}/api/reload", server.url()));
+        std::env::set_var("STATESYNC_WEB_AUTH", "bearer:mysecret");
+    }
+
+    let res = super::dry_run::trigger_reload().await;
+    assert!(res.is_ok());
+
+    mock_call.assert_async().await;
+
+    unsafe {
+        std::env::remove_var("STATESYNC_RELOAD_URL");
+        std::env::remove_var("STATESYNC_WEB_AUTH");
+    }
+}

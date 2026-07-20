@@ -92,4 +92,117 @@ mod tests {
         assert_eq!(errors[0].message, "err 50");
         assert_eq!(errors[99].message, "err 149");
     }
+
+    #[test]
+    fn test_direction_from_env() {
+        unsafe {
+            std::env::set_var("STATESYNC_FORCE_DIRECTION", "emby_to_jellyfin");
+        }
+        assert_eq!(helpers::direction_from_env(), crate::sync_force::Direction::EmbyToJellyfin);
+
+        unsafe {
+            std::env::set_var("STATESYNC_FORCE_DIRECTION", "jellyfin_to_emby");
+        }
+        assert_eq!(helpers::direction_from_env(), crate::sync_force::Direction::JellyfinToEmby);
+
+        unsafe {
+            std::env::set_var("STATESYNC_FORCE_DIRECTION", "both");
+        }
+        assert_eq!(helpers::direction_from_env(), crate::sync_force::Direction::Both);
+
+        unsafe {
+            std::env::remove_var("STATESYNC_FORCE_DIRECTION");
+        }
+        assert_eq!(helpers::direction_from_env(), crate::sync_force::Direction::Both);
+    }
+
+    #[test]
+    fn test_write_status() {
+        let tracker = SyncForceTracker::default();
+        let mut status = ForceSyncStatus::idle();
+        status.processed = 42;
+        helpers::write_status(&tracker, &status);
+
+        let snap = tracker.snapshot_status();
+        assert_eq!(snap.processed, 42);
+    }
+
+    #[tokio::test]
+    async fn test_module_snapshot_status_and_cancel() {
+        let tracker = SyncForceTracker::default();
+        let snap = crate::sync_force::snapshot_status(&tracker).await;
+        assert_eq!(snap.state, ForceSyncState::Idle);
+
+        crate::sync_force::cancel_backfill(&tracker).await;
+        assert!(tracker.cancel.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_run_force_sync_already_running() {
+        let tracker = std::sync::Arc::new(SyncForceTracker::default());
+        {
+            let mut running = tracker.running.lock().await;
+            *running = true;
+            let mut status = tracker.status.lock().await;
+            status.state = ForceSyncState::Running;
+            status.processed = 99;
+        }
+
+        let ctx = crate::sync_force::ForceContext {
+            direction: crate::sync_force::Direction::Both,
+            config: crate::config::default_config(),
+            clients: vec![],
+            state: std::sync::Arc::new(tokio::sync::Mutex::new(crate::state::AppState::new(vec![]))),
+            tracker: tracker.clone(),
+        };
+
+        let result = crate::sync_force::run_force_sync(ctx).await;
+        assert_eq!(result.state, ForceSyncState::Running);
+        assert_eq!(result.processed, 99);
+    }
+
+    #[tokio::test]
+    async fn test_force_sync_pair_cancelled_immediately() {
+        let server = mockito::Server::new_async().await;
+        let client = std::sync::Arc::new(crate::client::MediaClient::new(server.url(), "key".to_string(), false));
+        let tracker = std::sync::Arc::new(SyncForceTracker::default());
+        tracker.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        let config = crate::config::default_config();
+        let state = std::sync::Arc::new(tokio::sync::Mutex::new(crate::state::AppState::new(vec![])));
+        let ctx = crate::sync_force::ForceContext {
+            direction: crate::sync_force::Direction::Both,
+            config,
+            clients: vec![client.clone(), client.clone()],
+            state,
+            tracker: tracker.clone(),
+        };
+
+        let mut status = ForceSyncStatus::idle();
+        let mut processed = 0;
+        let mut succeeded = 0;
+        let mut skipped = 0;
+        let mut failed = 0;
+        let mut errors = vec![];
+        let sem = tokio::sync::Semaphore::new(1);
+
+        let cancelled = crate::sync_force::sync_loop::force_sync_pair(
+            0,
+            1,
+            "u1",
+            "u2",
+            &ctx,
+            &mut status,
+            &mut processed,
+            &mut succeeded,
+            &mut skipped,
+            &mut failed,
+            &mut errors,
+            &sem,
+            std::time::Duration::from_millis(1),
+        ).await;
+
+        assert!(cancelled);
+        assert_eq!(processed, 0);
+    }
 }

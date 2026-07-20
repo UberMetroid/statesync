@@ -11,6 +11,9 @@ pub mod loop_handler;
 pub mod handlers;
 pub use loop_handler::handle_websocket_loop;
 
+#[cfg(test)]
+mod tests;
+
 pub fn make_ws_url(url: &str, api_key: &str, is_emby: bool) -> String {
     let base = url.trim_end_matches('/');
     let ws_base = if base.starts_with("https://") {

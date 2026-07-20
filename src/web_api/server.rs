@@ -162,6 +162,6 @@ pub async fn get_server_info(
     }
 }
 
-fn valid_server_url(u: &str) -> bool {
+pub(super) fn valid_server_url(u: &str) -> bool {
     (u.starts_with("http://") || u.starts_with("https://")) && u.len() <= 512 && !u.contains("..")
 }

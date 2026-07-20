@@ -170,3 +170,23 @@ pub fn render_dashboard() -> Markup {
             }
         }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::render_dashboard;
+
+    #[test]
+    fn test_render_dashboard_contains_title() {
+        let html_str = render_dashboard().into_string();
+        assert!(html_str.contains("<title>StateSync</title>"));
+    }
+
+    #[test]
+    fn test_render_dashboard_contains_headings() {
+        let html_str = render_dashboard().into_string();
+        assert!(html_str.contains("[ MAPPED USERS ]"));
+        assert!(html_str.contains("[ ACTIVE STREAMS ]"));
+        assert!(html_str.contains("[ MEDIA SERVERS ]"));
+        assert!(html_str.contains("[ TERMINAL LOG FEED ]"));
+    }
+}

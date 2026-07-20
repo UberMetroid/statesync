@@ -40,7 +40,7 @@ pub async fn run_tui(bind_addr: &str, web_auth: Option<&str>) -> anyhow::Result<
     }
 }
 
-fn draw_tui_from_json(status: &serde_json::Value) {
+pub(super) fn draw_tui_from_json(status: &serde_json::Value) {
     print!("\x1B[2J\x1B[H");
     println!(
         "\x1B[1m\x1B[36m┌──────────────────────────────────────────────────────────────────────────────┐\x1B[0m"

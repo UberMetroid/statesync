@@ -5,7 +5,7 @@ use statesync::config::Config;
 use statesync::state::AppState;
 use statesync::sync_force::{Direction, ForceContext, ForceSyncState, run_force_sync};
 
-fn parse_sync_force_args(args: &[String]) -> Direction {
+pub(super) fn parse_sync_force_args(args: &[String]) -> Direction {
     for a in args.iter().skip(2) {
         if let Some(v) = a.strip_prefix("--direction=") {
             return match v {

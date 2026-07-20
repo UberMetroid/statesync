@@ -6,6 +6,9 @@ pub mod request;
 pub mod api;
 pub mod played;
 
+#[cfg(test)]
+mod tests;
+
 pub use types::{WsMessage, UserDataChangedInfo, UserDataEntry, SessionInfo, NowPlayingItem, PlayState, PlayedItem};
 
 pub struct MediaClient {
