@@ -18,7 +18,7 @@ RUN cargo build --release --target x86_64-unknown-linux-musl
 #     default, each with a clear warning logged.
 #   - No user intervention is ever required.
 FROM alpine:3.20
-RUN apk add --no-cache tzdata wget su-exec && \
+RUN apk add --no-cache tzdata wget su-exec ca-certificates && \
     mkdir -p /config /app
 WORKDIR /app
 COPY --from=builder /usr/src/statesync/target/x86_64-unknown-linux-musl/release/statesync /usr/local/bin/statesync
