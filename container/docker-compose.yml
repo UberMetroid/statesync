@@ -6,9 +6,9 @@ services:
     container_name: statesync
     restart: unless-stopped
     # Binds to 0.0.0.0 by default — accessible on the LAN.
-    # For loopback-only, change to "127.0.0.1:4407:4407"
+    # For loopback-only, change to "127.0.0.1:4601:4601"
     ports:
-      - "4407:4407"
+      - "4601:4601"
     volumes:
       - ./config:/config
     environment:

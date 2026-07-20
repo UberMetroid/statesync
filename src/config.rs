@@ -294,7 +294,7 @@ impl Config {
     }
 }
 
-pub const DEFAULT_BIND_FOR_BANNER: &str = "127.0.0.1:4407";
+pub const DEFAULT_BIND_FOR_BANNER: &str = "127.0.0.1:4601";
 
 pub fn get_config_path() -> &'static str {
     if std::path::Path::new("/config").exists() {
@@ -461,13 +461,13 @@ mod tests {
 
     #[test]
     fn test_is_loopback_bind() {
-        assert!(is_loopback_bind("127.0.0.1:4407"));
-        assert!(is_loopback_bind("localhost:4407"));
-        assert!(is_loopback_bind("[::1]:4407"));
+        assert!(is_loopback_bind("127.0.0.1:4601"));
+        assert!(is_loopback_bind("localhost:4601"));
+        assert!(is_loopback_bind("[::1]:4601"));
         assert!(is_loopback_bind("::1"));
-        assert!(!is_loopback_bind("0.0.0.0:4407"));
-        assert!(!is_loopback_bind("192.168.1.10:4407"));
-        assert!(!is_loopback_bind("::1:4407"));
+        assert!(!is_loopback_bind("0.0.0.0:4601"));
+        assert!(!is_loopback_bind("192.168.1.10:4601"));
+        assert!(!is_loopback_bind("::1:4601"));
     }
 
     #[test]
