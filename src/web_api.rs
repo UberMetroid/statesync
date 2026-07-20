@@ -315,6 +315,9 @@ pub async fn get_status(
             "succeeded": st.succeeded,
             "skipped": st.skipped,
             "failed": st.failed,
+            "total_pairs": st.total_pairs,
+            "current_user": st.current_user,
+            "last_error": st.last_error,
         })
     };
 
