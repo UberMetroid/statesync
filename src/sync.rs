@@ -253,7 +253,7 @@ pub async fn sync_progress_to_targets(
                 let time_diff = last_sync.timestamp.elapsed();
 
                 if tick_diff < (config.sync_threshold_seconds * 10_000_000) as i64
-                    && time_diff < Duration::from_secs(config.sync_threshold_seconds)
+                    && time_diff < Duration::from_secs(5)
                     && !played
                 {
                     continue;
@@ -294,6 +294,15 @@ pub async fn sync_progress_to_targets(
             info!("{}", message);
             state.log_sync(log_entry);
 
+            // Optimistic insertion to prevent feedback loops during the async HTTP update.
+            state.last_syncs.insert(
+                history_key.clone(),
+                SyncHistoryValue {
+                    position_ticks: position,
+                    timestamp: now,
+                },
+            );
+
             let client_target_clone = client_target.clone();
             let target_name_clone = target_name.clone();
             let state_lock_clone = state_lock.clone();
@@ -311,24 +320,15 @@ pub async fn sync_progress_to_targets(
                         played,
                     )
                     .await;
-                let mut state = state_lock_clone.lock().await;
-                match res {
-                    Ok(()) => {
-                        state.last_syncs.insert(
-                            history_key_clone,
-                            SyncHistoryValue {
-                                position_ticks: position,
-                                timestamp: now,
-                            },
-                        );
-                    }
-                    Err(e) => {
-                        error!("Error updating target playstate: {}", e);
-                        state.log_event(
-                            "error",
-                            &format!("Sync failed to '{}': {}", target_name_clone, e),
-                        );
-                    }
+                if let Err(e) = res {
+                    error!("Error updating target playstate: {}", e);
+                    let mut state = state_lock_clone.lock().await;
+                    // Remove optimistic entry on failure so it can retry later
+                    state.last_syncs.remove(&history_key_clone);
+                    state.log_event(
+                        "error",
+                        &format!("Sync failed to '{}': {}", target_name_clone, e),
+                    );
                 }
             });
         }

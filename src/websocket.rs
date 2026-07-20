@@ -372,10 +372,11 @@ pub async fn handle_websocket_loop(
                 );
             }
             Err(e) => {
-                error!("Failed to connect to '{}' WebSocket: {}.", source_name, e);
+                let err_str = redact_api_key(&e.to_string());
+                error!("Failed to connect to '{}' WebSocket: {}.", source_name, err_str);
                 state_lock.lock().await.log_event(
                     "error",
-                    &format!("Failed to connect to '{}' WebSocket: {}", source_name, e),
+                    &format!("Failed to connect to '{}' WebSocket: {}", source_name, err_str),
                 );
             }
         }
@@ -421,4 +422,22 @@ fn spawn_userdata_sync(
         )
         .await;
     });
+}
+
+fn redact_api_key(msg: &str) -> String {
+    let mut result = String::new();
+    let mut current = msg;
+    while let Some(idx) = current.find("api_key=") {
+        result.push_str(&current[..idx]);
+        result.push_str("api_key=[REDACTED]");
+        let rest = &current[idx + 8..];
+        if let Some(amp_idx) = rest.find('&') {
+            current = &rest[amp_idx..];
+        } else {
+            current = "";
+            break;
+        }
+    }
+    result.push_str(current);
+    result
 }

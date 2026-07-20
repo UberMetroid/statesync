@@ -80,9 +80,17 @@ async fn main() -> Result<()> {
 
     init_logging();
     info!("Starting statesync v{} sidecar...", VERSION);
-
     let bind_addr = resolve_bind_addr();
     let web_auth = resolve_web_auth();
+
+    if !statesync::config::is_loopback_bind(&bind_addr) && web_auth.is_none() {
+        eprintln!(
+            "FATAL: Refusing to bind to non-loopback address '{}' without STATESYNC_WEB_AUTH configuration. \
+             To bind to public interfaces, you MUST set STATESYNC_WEB_AUTH=bearer:<token>.",
+            bind_addr
+        );
+        std::process::exit(1);
+    }
 
     if web_auth.is_some() {
         eprintln!("STATESYNC_WEB_AUTH is set; bearer token required for /api/* endpoints.");

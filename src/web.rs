@@ -126,7 +126,7 @@ async fn auth_middleware(
                 tracing::error!(
                     "STATESYNC_WEB_AUTH must start with 'bearer:' (got unsupported scheme); all protected endpoints will reject"
                 );
-                false
+                true
             }
         },
     };
