@@ -10,6 +10,8 @@ pub mod status;
 pub mod sync;
 #[cfg(test)]
 pub mod tests;
+#[cfg(test)]
+pub mod tests_more;
 pub mod users;
 pub mod validation;
 

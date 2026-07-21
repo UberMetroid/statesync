@@ -7,6 +7,8 @@ use std::time::Instant;
 pub mod cache;
 #[cfg(test)]
 pub mod tests;
+#[cfg(test)]
+mod tests_more;
 /// Missing documentation.
 pub mod user_mapping;
 
