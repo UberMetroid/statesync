@@ -74,6 +74,9 @@ fn test_url_path() {
     let client_emby = MediaClient::new("http://localhost".to_string(), "k".to_string(), true);
     assert_eq!(client_emby.url_path("/Users"), "http://localhost/emby/Users");
 
+    let client_emby_preset = MediaClient::new("http://localhost/emby".to_string(), "k".to_string(), true);
+    assert_eq!(client_emby_preset.url_path("/Users"), "http://localhost/emby/Users");
+
     let client_jf = MediaClient::new("http://localhost".to_string(), "k".to_string(), false);
     assert_eq!(client_jf.url_path("/Users"), "http://localhost/Users");
 }
@@ -85,9 +88,12 @@ fn test_add_auth_headers() {
     let req = client_emby.client.get("http://localhost");
     let req = client_emby.add_auth_headers(req).build().unwrap();
     assert_eq!(req.headers().get("X-Emby-Token").unwrap(), "emby_key");
+    assert_eq!(req.headers().get("X-MediaBrowser-Token").unwrap(), "emby_key");
+    assert!(req.headers().get("Authorization").unwrap().to_str().unwrap().contains("emby_key"));
 
     let client_jf = MediaClient::new("http://localhost".to_string(), "jf_key".to_string(), false);
     let req = client_jf.client.get("http://localhost");
     let req = client_jf.add_auth_headers(req).build().unwrap();
     assert_eq!(req.headers().get("X-MediaBrowser-Token").unwrap(), "jf_key");
+    assert_eq!(req.headers().get("X-Emby-Token").unwrap(), "jf_key");
 }

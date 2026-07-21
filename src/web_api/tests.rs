@@ -138,4 +138,20 @@ mod tests {
         let res2 = test_connection(Json(req_long_key)).await;
         assert_eq!(res2.get("status").unwrap().as_str().unwrap(), "error");
     }
+
+    #[tokio::test]
+    async fn test_test_connection_returns_detailed_error() {
+        use axum::Json;
+        use super::super::server::{test_connection, TestConnRequest};
+
+        let req_fail = TestConnRequest {
+            url: "http://127.0.0.1:1".to_string(), // Unreachable port
+            api_key: "key".to_string(),
+            is_emby: false,
+        };
+        let res = test_connection(Json(req_fail)).await;
+        assert_eq!(res.get("status").unwrap().as_str().unwrap(), "error");
+        let msg = res.get("message").unwrap().as_str().unwrap();
+        assert!(msg.contains("Connection failed"));
+    }
 }
