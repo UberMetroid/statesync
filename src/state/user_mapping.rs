@@ -1,16 +1,32 @@
 use std::collections::HashMap;
+use tracing::warn;
 
 fn min_substring_len(a: &str, b: &str) -> usize {
     (a.len().min(b.len()) / 2).max(3)
 }
 
-/// Missing documentation.
+/// Fuzzy substring username matching is off by default because it can map
+/// progress to the wrong account (`bob` → `bobby`). Enable only when needed:
+/// `STATESYNC_FUZZY_USER_MATCH=true`.
+pub fn fuzzy_user_match_enabled() -> bool {
+    std::env::var("STATESYNC_FUZZY_USER_MATCH")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on"))
+        .unwrap_or(false)
+}
+
+/// Resolve a target-server user id for `source_username`.
+///
+/// Order: custom mapping groups → exact (case-insensitive) name match →
+/// optional fuzzy substring match (see [`fuzzy_user_match_enabled`]).
 pub fn find_mapped_user_id(
     source_username: &str,
     target_users: &HashMap<String, String>,
     custom_mappings: &[Vec<String>],
 ) -> Option<String> {
-    let src_lower = source_username.to_lowercase();
+    let src_lower = source_username.trim().to_lowercase();
+    if src_lower.is_empty() {
+        return None;
+    }
 
     for group in custom_mappings {
         if group.iter().any(|u| u.to_lowercase() == src_lower) {
@@ -29,6 +45,10 @@ pub fn find_mapped_user_id(
         return Some(id.clone());
     }
 
+    if !fuzzy_user_match_enabled() {
+        return None;
+    }
+
     let mut candidates: Vec<(&String, &String)> = target_users
         .iter()
         .filter(|(tgt_name, _)| {
@@ -45,7 +65,11 @@ pub fn find_mapped_user_id(
         let b_diff = (b.0.len() as i64 - src_lower.len() as i64).abs();
         a_diff.cmp(&b_diff)
     });
-    if let Some((_, id)) = candidates.into_iter().next() {
+    if let Some((name, id)) = candidates.into_iter().next() {
+        warn!(
+            "fuzzy user match: '{}' → '{}' (set STATESYNC_FUZZY_USER_MATCH=false or use explicit user_mappings)",
+            source_username, name
+        );
         return Some(id.clone());
     }
     None

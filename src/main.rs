@@ -1,4 +1,4 @@
-//! Missing crate docs.
+//! StateSync daemon entry point.
 #![allow(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, broadcast, mpsc};
+use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use statesync::{
@@ -20,14 +21,15 @@ use statesync::{
 
 mod cli;
 
-use cli::{resolve_bind_addr, resolve_web_auth, install_shutdown_handler};
+use cli::{
+    drain_ws_handles, enforce_bind_auth, install_shutdown_handler, resolve_bind_addr,
+    resolve_web_auth,
+};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const WS_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Main entry point for the StateSync application.
-///
-/// Parses command line arguments, loads configuration, initializes application state,
-/// spawns the web dashboard server, and connects WebSocket synchronization loops to all configured media servers.
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -75,15 +77,13 @@ async fn main() -> Result<()> {
     info!("Starting statesync v{} sidecar...", VERSION);
     let bind_addr = resolve_bind_addr();
     let web_auth = resolve_web_auth();
-
-
+    enforce_bind_auth(&bind_addr, web_auth.as_ref())?;
 
     if web_auth.is_some() {
         eprintln!("STATESYNC_WEB_AUTH is set; bearer token required for /api/* endpoints.");
     } else {
         eprintln!(
-            "STATESYNC_WEB_AUTH not set; /api/* endpoints are open on {}. \
-             Set STATESYNC_WEB_AUTH=bearer:<token> to require authentication.",
+            "STATESYNC_WEB_AUTH not set; /api/* is open on loopback-only bind {}.",
             bind_addr
         );
     }
@@ -107,7 +107,6 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("Failed to bind web UI server to {}", bind_addr))?;
-
     info!("Web UI listening on http://{}", bind_addr);
 
     tokio::spawn(async move {
@@ -120,9 +119,7 @@ async fn main() -> Result<()> {
 
     loop {
         info!("Loading configuration...");
-        let config_res = statesync::config::load_or_create_default();
-
-        let config = match config_res {
+        let config = match statesync::config::load_or_create_default() {
             Ok(cfg) => cfg,
             Err(e) => {
                 warn!(
@@ -181,6 +178,7 @@ async fn main() -> Result<()> {
         }
 
         let (shutdown_tx, _) = broadcast::channel::<()>(16);
+        let mut ws_handles: Vec<JoinHandle<()>> = Vec::new();
 
         for (i, s) in config.servers.iter().enumerate() {
             let ws_url = make_ws_url(&s.url, &s.api_key, s.is_emby);
@@ -193,16 +191,14 @@ async fn main() -> Result<()> {
             let state_clone = app_state.clone();
             let config_clone = config.clone();
             let shutdown_rx = shutdown_tx.subscribe();
-
             let mut target_clients = Vec::new();
             for (j, client) in clients.iter().enumerate() {
                 if j != i {
                     target_clients.push((j, client.clone()));
                 }
             }
-
             let source_client = clients[i].clone();
-            tokio::spawn(async move {
+            ws_handles.push(tokio::spawn(async move {
                 handle_websocket_loop(
                     i,
                     &ws_url,
@@ -213,7 +209,7 @@ async fn main() -> Result<()> {
                     shutdown_rx,
                 )
                 .await;
-            });
+            }));
         }
 
         info!("All synchronization loops started.");
@@ -222,43 +218,20 @@ async fn main() -> Result<()> {
             _ = reload_rx.recv() => {
                 info!("Reload signal received. Shutting down active synchronization loops...");
                 let _ = shutdown_tx.send(());
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                drain_ws_handles(ws_handles, WS_DRAIN_TIMEOUT).await;
             }
             _ = &mut shutdown_signal => {
                 info!("Shutdown signal received, exiting.");
                 let _ = shutdown_tx.send(());
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                drain_ws_handles(ws_handles, WS_DRAIN_TIMEOUT).await;
                 return Ok(());
             }
         }
     }
 }
 
-/// Initializes the global tracing logging framework with EnvFilter.
 fn init_logging() {
     use tracing_subscriber::{EnvFilter, fmt};
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let _ = fmt().with_env_filter(filter).try_init();
-}
-
-
-#[cfg(test)]
-mod generated_tests {
-    use super::*;
-    #[test]
-    fn test_main_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_main_generated_test_1() {
-        assert!(true);
-    }
-    #[test]
-    fn test_init_logging_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_init_logging_generated_test_1() {
-        assert!(true);
-    }
 }

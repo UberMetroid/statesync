@@ -1,7 +1,25 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use super::MediaClient;
 use super::types::PlayedItem;
 use super::request::send_with_retry;
+
+/// Encode path segments without mangling Emby/Jellyfin id characters (`_`, `-`, `.`).
+const PATH_SEGMENT: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'/')
+    .add(b'?')
+    .add(b'<')
+    .add(b'>')
+    .add(b'\\')
+    .add(b'^')
+    .add(b'`')
+    .add(b'{')
+    .add(b'|')
+    .add(b'}');
 
 impl MediaClient {
     /// Missing documentation.
@@ -11,27 +29,29 @@ impl MediaClient {
         imdb_id: &str,
         tmdb_id: &str,
     ) -> Result<Option<(String, String, String)>> {
-        let mut path = format!("/Users/{}/Items?Recursive=true&Fields=ProviderIds", user_id);
+        let uid = utf8_percent_encode(user_id, PATH_SEGMENT);
+        let mut path = format!("/Users/{}/Items?Recursive=true&Fields=ProviderIds", uid);
         if !imdb_id.is_empty() {
             path.push_str(&format!(
                 "&AnyProviderIdTypes=Imdb&ProviderIds={}",
-                percent_encoding::utf8_percent_encode(imdb_id, percent_encoding::NON_ALPHANUMERIC)
+                utf8_percent_encode(imdb_id, PATH_SEGMENT)
             ));
         } else if !tmdb_id.is_empty() {
             path.push_str(&format!(
                 "&AnyProviderIdTypes=Tmdb&ProviderIds={}",
-                percent_encoding::utf8_percent_encode(tmdb_id, percent_encoding::NON_ALPHANUMERIC)
+                utf8_percent_encode(tmdb_id, PATH_SEGMENT)
             ));
         } else {
             return Ok(None);
         }
 
         let url = self.url_path(&path);
-        let resp = self
-            .add_auth_headers(self.client.get(&url))
-            .send()
-            .await
-            .context("Failed to search item by provider ID")?;
+        let resp = send_with_retry(
+            self.add_auth_headers(self.client.get(&url)),
+            "find_item_by_provider",
+        )
+        .await
+        .context("Failed to search item by provider ID")?;
 
         let data: serde_json::Value = resp
             .json()
@@ -66,28 +86,24 @@ impl MediaClient {
         position_ticks: i64,
         played: bool,
     ) -> Result<()> {
-        let path = format!("/Users/{}/Items/{}/UserData", user_id, item_id);
+        let path = format!(
+            "/Users/{}/Items/{}/UserData",
+            utf8_percent_encode(user_id, PATH_SEGMENT),
+            utf8_percent_encode(item_id, PATH_SEGMENT)
+        );
         let url = self.url_path(&path);
         let body = serde_json::json!({
             "PlaybackPositionTicks": position_ticks,
             "Played": played,
         });
 
-        let resp = self
-            .add_auth_headers(self.client.post(&url))
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to send UserData progress update request")?;
-
-        if !resp.status().is_success() {
-            let body_text = resp.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "UserData progress update failed: {} - {}",
-                url,
-                body_text
-            ));
-        }
+        // UserData writes are idempotent for the same payload; retry on transient 5xx.
+        let _resp = send_with_retry(
+            self.add_auth_headers(self.client.post(&url)).json(&body),
+            "update_progress",
+        )
+        .await
+        .with_context(|| format!("UserData progress update failed: {}", url))?;
         Ok(())
     }
 
@@ -100,7 +116,7 @@ impl MediaClient {
     ) -> Result<Vec<PlayedItem>> {
         let path = format!(
             "/Users/{}/Items?Recursive=true&Fields=ProviderIds,UserData&Filters=IsPlayed&StartIndex={}&Limit={}",
-            user_id, start_index, limit
+            utf8_percent_encode(user_id, PATH_SEGMENT), start_index, limit
         );
         let url = self.url_path(&path);
         let resp = send_with_retry(
@@ -162,7 +178,7 @@ impl MediaClient {
     pub async fn get_user_played_items_count(&self, user_id: &str) -> Result<u64> {
         let path = format!(
             "/Users/{}/Items?Recursive=true&Filters=IsPlayed&Limit=0",
-            user_id
+            utf8_percent_encode(user_id, PATH_SEGMENT)
         );
         let url = self.url_path(&path);
         let resp = send_with_retry(

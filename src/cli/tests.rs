@@ -67,6 +67,15 @@ fn test_resolve_bind_addr() {
 }
 
 #[test]
+fn test_enforce_bind_auth() {
+    let _guard = CLI_TEST_LOCK.lock().unwrap();
+    assert!(super::helpers::enforce_bind_auth("127.0.0.1:4601", None).is_ok());
+    assert!(super::helpers::enforce_bind_auth("0.0.0.0:4601", None).is_err());
+    let token = "bearer:secret".to_string();
+    assert!(super::helpers::enforce_bind_auth("0.0.0.0:4601", Some(&token)).is_ok());
+}
+
+#[test]
 fn test_resolve_web_auth() {
     let _guard = CLI_TEST_LOCK.lock().unwrap();
     unsafe {

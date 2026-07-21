@@ -1,18 +1,57 @@
 use anyhow::{Result, anyhow};
-use super::{Config, ServerConfig, MAX_NAME_LEN, MAX_URL_LEN, MAX_KEY_LEN, MAX_MAPPING_GROUPS, MAX_GROUP_MEMBERS, MAX_MEMBER_LEN};
+use super::{
+    Config, ServerConfig, MAX_NAME_LEN, MAX_URL_LEN, MAX_KEY_LEN, MAX_MAPPING_GROUPS,
+    MAX_GROUP_MEMBERS, MAX_MEMBER_LEN, name_from_url, normalize_server_url,
+};
+
+/// Fill empty names from URL host and normalize URLs in place.
+pub fn normalize_config(cfg: &mut Config) {
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for s in &mut cfg.servers {
+        s.url = normalize_server_url(&s.url);
+        s.name = s.name.trim().to_string();
+        let was_empty = s.name.is_empty();
+        if was_empty {
+            s.name = name_from_url(&s.url);
+        }
+        // Only auto-suffix when the name was derived (not user-provided duplicates —
+        // those still fail validate_config so the user can fix them).
+        if was_empty {
+            let base = s.name.clone();
+            let mut n = 2u32;
+            let mut key = base.to_lowercase();
+            while used.contains(&key) {
+                s.name = format!("{}-{}", base, n);
+                key = s.name.to_lowercase();
+                n += 1;
+            }
+        }
+        used.insert(s.name.to_lowercase());
+        if s.sync_direction.is_empty() {
+            s.sync_direction = "both".to_string();
+        }
+    }
+}
 
 pub(super) fn validate_server(s: &ServerConfig) -> Result<()> {
-    if s.name.is_empty() || s.name.len() > MAX_NAME_LEN {
+    if s.name.len() > MAX_NAME_LEN {
         return Err(anyhow!(
-            "server name must be 1..={} chars (got {})",
+            "server name must be <= {} chars (got {})",
             MAX_NAME_LEN,
             s.name.len()
+        ));
+    }
+    // Empty name is OK — normalize_config fills from URL before validate.
+    if s.name.is_empty() {
+        return Err(anyhow!(
+            "server name is empty and could not be derived from url '{}'",
+            s.url
         ));
     }
     if s.url.len() > MAX_URL_LEN || !(s.url.starts_with("http://") || s.url.starts_with("https://"))
     {
         return Err(anyhow!(
-            "server '{}': url must start with http:// or https:// and be <={} chars",
+            "server '{}': url must start with http:// or https:// (or be host:port) and be <={} chars",
             s.name,
             MAX_URL_LEN
         ));
@@ -22,6 +61,9 @@ pub(super) fn validate_server(s: &ServerConfig) -> Result<()> {
             "server '{}': http:// url rejected (set allow_insecure_http: true to override)",
             s.name
         ));
+    }
+    if s.api_key.trim().is_empty() {
+        return Err(anyhow!("server '{}': api_key is required", s.name));
     }
     if s.api_key.len() > MAX_KEY_LEN {
         return Err(anyhow!(
@@ -45,6 +87,8 @@ pub(super) fn validate_server(s: &ServerConfig) -> Result<()> {
 
 /// Missing documentation.
 pub fn validate_config(cfg: &Config) -> Result<()> {
+    let mut cfg = cfg.clone();
+    normalize_config(&mut cfg);
     if cfg.servers.len() > 20 {
         return Err(anyhow!(
             "too many servers configured ({} > 20)",

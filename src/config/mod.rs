@@ -9,9 +9,9 @@ pub mod validation;
 #[cfg(test)]
 pub mod tests;
 
-pub use helpers::redacted_url;
+pub use helpers::{name_from_url, normalize_server_url, redacted_url};
 pub use loader::{load_or_create_default, write_default_config_to_disk, get_config_path, default_config};
-pub use validation::{is_loopback_bind, validate_config};
+pub use validation::{is_loopback_bind, normalize_config, validate_config};
 
 /// Missing documentation.
 pub const MAX_NAME_LEN: usize = 64;

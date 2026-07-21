@@ -27,18 +27,33 @@ pub struct MediaClient {
     pub is_emby: bool,
 }
 
+/// When true, TLS certificate verification is disabled for upstream
+/// Emby/Jellyfin HTTPS. Off by default; set `STATESYNC_ACCEPT_INVALID_CERTS=true`
+/// only for self-signed LAN certs you intentionally trust.
+pub fn accept_invalid_certs_enabled() -> bool {
+    std::env::var("STATESYNC_ACCEPT_INVALID_CERTS")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on"))
+        .unwrap_or(false)
+}
+
 impl MediaClient {
     /// Missing documentation.
     pub fn new(url: String, api_key: String, is_emby: bool) -> Self {
         let clean_url = url.trim().trim_end_matches('/').to_string();
         let clean_api_key = api_key.trim().to_string();
+        let accept_invalid = accept_invalid_certs_enabled();
+        if accept_invalid {
+            tracing::warn!(
+                "STATESYNC_ACCEPT_INVALID_CERTS is enabled; TLS certificate verification is disabled for upstream servers"
+            );
+        }
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .pool_idle_timeout(Duration::from_secs(60))
             .tcp_keepalive(Duration::from_secs(60))
             .tcp_nodelay(true)
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(accept_invalid)
             .build()
             .unwrap_or_else(|_| Client::new());
         Self {

@@ -24,18 +24,24 @@ mod tests {
     fn test_valid_server_name() {
         assert!(valid_server_name("green"));
         assert!(valid_server_name("my-server_01.local"));
+        assert!(valid_server_name("name with space"));
+        assert!(valid_server_name("192.168.1.50"));
         assert!(!valid_server_name(""));
         assert!(!valid_server_name("../etc"));
-        assert!(!valid_server_name("name with space"));
+        assert!(!valid_server_name("a/b"));
     }
 
     #[test]
     fn test_valid_server_url() {
-        assert!(super::super::server::valid_server_url("http://localhost:8096"));
-        assert!(super::super::server::valid_server_url("https://emby.example.com"));
-        assert!(!super::super::server::valid_server_url("ftp://localhost:8096"));
-        assert!(!super::super::server::valid_server_url("http://localhost/../etc"));
-        assert!(!super::super::server::valid_server_url(&format!("http://{}", "a".repeat(510))));
+        use super::super::validation::{valid_server_url, validate_upstream_url};
+        assert!(valid_server_url("http://localhost:8096"));
+        assert!(valid_server_url("https://emby.example.com"));
+        assert!(valid_server_url("192.168.1.50:8096")); // bare host:port OK
+        assert!(!valid_server_url("ftp://localhost:8096"));
+        assert!(!valid_server_url("http://localhost/../etc"));
+        assert!(!valid_server_url(&format!("http://{}", "a".repeat(510))));
+        assert!(validate_upstream_url("http://169.254.169.254/").is_err());
+        assert!(validate_upstream_url("http://192.168.1.10:8096").is_ok());
     }
 
     #[tokio::test]
@@ -120,6 +126,7 @@ mod tests {
     #[tokio::test]
     async fn test_test_connection_invalid_params() {
         use axum::Json;
+        use axum::http::StatusCode;
         use super::super::server::{test_connection, TestConnRequest};
 
         let req_bad_url = TestConnRequest {
@@ -127,7 +134,8 @@ mod tests {
             api_key: "key".to_string(),
             is_emby: false,
         };
-        let res = test_connection(Json(req_bad_url)).await;
+        let (status, res) = test_connection(Json(req_bad_url)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(res.get("status").unwrap().as_str().unwrap(), "error");
 
         let req_long_key = TestConnRequest {
@@ -135,13 +143,24 @@ mod tests {
             api_key: "a".repeat(257),
             is_emby: false,
         };
-        let res2 = test_connection(Json(req_long_key)).await;
+        let (status2, res2) = test_connection(Json(req_long_key)).await;
+        assert_eq!(status2, StatusCode::BAD_REQUEST);
         assert_eq!(res2.get("status").unwrap().as_str().unwrap(), "error");
+
+        let req_meta = TestConnRequest {
+            url: "http://169.254.169.254/latest".to_string(),
+            api_key: "key".to_string(),
+            is_emby: false,
+        };
+        let (status3, res3) = test_connection(Json(req_meta)).await;
+        assert_eq!(status3, StatusCode::BAD_REQUEST);
+        assert!(res3.get("message").unwrap().as_str().unwrap().contains("Blocked"));
     }
 
     #[tokio::test]
     async fn test_test_connection_returns_detailed_error() {
         use axum::Json;
+        use axum::http::StatusCode;
         use super::super::server::{test_connection, TestConnRequest};
 
         let req_fail = TestConnRequest {
@@ -149,15 +168,20 @@ mod tests {
             api_key: "key".to_string(),
             is_emby: false,
         };
-        let res = test_connection(Json(req_fail)).await;
+        let (status, res) = test_connection(Json(req_fail)).await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
         assert_eq!(res.get("status").unwrap().as_str().unwrap(), "error");
         let msg = res.get("message").unwrap().as_str().unwrap();
-        assert!(msg.contains("Connection failed"));
+        assert!(
+            msg.contains("Could not reach") || msg.contains("Connection failed"),
+            "unexpected error message: {}",
+            msg
+        );
     }
 
     #[test]
     fn test_valid_server_url_whitespace_and_case() {
-        use super::super::server::valid_server_url;
+        use super::super::validation::valid_server_url;
         assert!(valid_server_url("  HTTPS://Media-Server:8096/  "));
         assert!(valid_server_url("http://192.168.1.10:8096"));
         assert!(!valid_server_url("ftp://server"));

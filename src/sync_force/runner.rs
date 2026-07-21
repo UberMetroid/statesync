@@ -91,7 +91,8 @@ async fn run_force_sync_inner(
         })
         .collect();
 
-    let pairs: Vec<(usize, usize, String, String)> = {
+    // (src_idx, tgt_idx, src_username, src_user_id, tgt_user_id)
+    let pairs: Vec<(usize, usize, String, String, String)> = {
         let state_guard = ctx.state.lock().await;
         let mut result = Vec::new();
         for &src in &sources {
@@ -110,7 +111,13 @@ async fn run_force_sync_inner(
                             &tgt_cache.users,
                             &config.user_mappings,
                         ) {
-                            result.push((src, tgt, src_user_id.clone(), tgt_id));
+                            result.push((
+                                src,
+                                tgt,
+                                username.clone(),
+                                src_user_id.clone(),
+                                tgt_id,
+                            ));
                         }
                     }
                 }
@@ -120,7 +127,7 @@ async fn run_force_sync_inner(
     };
 
     let mut total_items = 0;
-    for (src_idx, _, src_user_id, _) in &pairs {
+    for (src_idx, _, _, src_user_id, _) in &pairs {
         let source_client = ctx.clients[*src_idx].clone();
         if let Ok(count) = source_client.get_user_played_items_count(src_user_id).await {
             total_items += count;
@@ -151,17 +158,18 @@ async fn run_force_sync_inner(
     let mut errors: Vec<ForceSyncError> = Vec::new();
 
     let mut cancelled = false;
-    for (src_idx, tgt_idx, src_user_id, tgt_user_id) in &pairs {
+    for (src_idx, tgt_idx, src_username, src_user_id, tgt_user_id) in &pairs {
         if ctx.tracker.cancel.load(Ordering::SeqCst) {
             cancelled = true;
             break;
         }
-        status.current_user = Some(src_user_id.clone());
+        status.current_user = Some(src_username.clone());
         write_status(&ctx.tracker, &status);
 
         cancelled = force_sync_pair(
             *src_idx,
             *tgt_idx,
+            src_username,
             src_user_id,
             tgt_user_id,
             ctx,

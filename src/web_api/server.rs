@@ -8,7 +8,9 @@ use std::time::Duration;
 use crate::client::MediaClient;
 use crate::config::Config;
 use crate::web::WebServerState;
-use super::validation::{valid_item_id, valid_server_name};
+use super::validation::{
+    valid_item_id, valid_server_name, valid_server_url, validate_upstream_url,
+};
 
 #[derive(Debug, Deserialize)]
 /// Missing documentation.
@@ -21,33 +23,105 @@ pub struct TestConnRequest {
     pub is_emby: bool,
 }
 
+#[derive(Debug, Deserialize)]
+/// JSON body for `/api/server-info` (avoids putting API keys in query strings).
+pub struct ServerInfoRequest {
+    pub url: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub is_emby: bool,
+}
+
 /// Missing documentation.
-pub async fn test_connection(Json(req): Json<TestConnRequest>) -> Json<serde_json::Value> {
-    let clean_url = req.url.trim().to_string();
+pub async fn test_connection(Json(req): Json<TestConnRequest>) -> (StatusCode, Json<serde_json::Value>) {
+    let clean_url = crate::config::normalize_server_url(&req.url);
     let clean_key = req.api_key.trim().to_string();
-    if clean_url.len() > 512 || !(clean_url.starts_with("http://") || clean_url.starts_with("https://")) {
-        return Json(json!({
-            "status": "error",
-            "message": "Invalid URL (must start with http:// or https:// and <= 512 chars)"
-        }));
+    if clean_url.is_empty() || clean_url.len() > 512 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "Invalid URL (use http://IP:PORT or https://host:PORT)"
+            })),
+        );
+    }
+    if !(clean_url.starts_with("http://") || clean_url.starts_with("https://")) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "Invalid URL (must start with http:// or https://)"
+            })),
+        );
+    }
+    if let Err(msg) = validate_upstream_url(&clean_url) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "status": "error", "message": msg })),
+        );
+    }
+    if clean_key.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "API key is required"
+            })),
+        );
     }
     if clean_key.len() > 256 {
-        return Json(json!({
-            "status": "error",
-            "message": "API key too long"
-        }));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "API key too long"
+            })),
+        );
     }
-    let client = MediaClient::new(clean_url, clean_key, req.is_emby);
-    match client.get_users().await {
-        Ok(users) => Json(json!({
-            "status": "ok",
-            "message": format!("Success! Connected to server and found {} users.", users.len())
-        })),
-        Err(e) => Json(json!({
-            "status": "error",
-            "message": format!("Connection failed: {:#}", e)
-        })),
+    // Try both type guesses so a wrong Emby/Jellyfin toggle still succeeds.
+    let attempts = if req.is_emby {
+        [true, false]
+    } else {
+        [false, true]
+    };
+    let mut last_err = String::new();
+    for is_emby in attempts {
+        let client = MediaClient::new(clean_url.clone(), clean_key.clone(), is_emby);
+        match client.get_users().await {
+            Ok(users) => {
+                let kind = if is_emby { "Emby" } else { "Jellyfin" };
+                return (
+                    StatusCode::OK,
+                    Json(json!({
+                        "status": "ok",
+                        "message": format!(
+                            "Connected to {} at {} ({} users).",
+                            kind,
+                            clean_url,
+                            users.len()
+                        ),
+                        "is_emby": is_emby,
+                        "url": clean_url,
+                    })),
+                );
+            }
+            Err(e) => {
+                last_err = format!("{:#}", e);
+            }
+        }
     }
+    (
+        StatusCode::BAD_GATEWAY,
+        Json(json!({
+            "status": "error",
+            "message": format!(
+                "Could not reach {} — check IP/port, API key, and that StateSync can route to that host. Detail: {}",
+                clean_url,
+                last_err
+            )
+        })),
+    )
 }
 
 /// Missing documentation.
@@ -62,7 +136,7 @@ pub async fn serve_poster(
         return Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .body(Body::from("Bad Request"))
-            .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
+            .unwrap_or_else(|_| Response::builder().status(500).body(Body::from("Internal Server Error")).unwrap_or_default());
     }
 
     let config = match Config::load() {
@@ -71,7 +145,7 @@ pub async fn serve_poster(
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from("Internal Error"))
-                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
+                .unwrap_or_else(|_| Response::builder().status(500).body(Body::from("Internal Server Error")).unwrap_or_default());
         }
     };
     let server_cfg = match config.servers.iter().find(|s| s.name == server_name) {
@@ -80,7 +154,7 @@ pub async fn serve_poster(
             return Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from("Not Found"))
-                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
+                .unwrap_or_else(|_| Response::builder().status(500).body(Body::from("Internal Server Error")).unwrap_or_default());
         }
     };
 
@@ -110,7 +184,7 @@ pub async fn serve_poster(
                 }
                 res.headers_mut().insert(
                     axum::http::header::CACHE_CONTROL,
-                    axum::http::HeaderValue::from_static("public, max-age=300"),
+                    axum::http::HeaderValue::from_static("private, max-age=300"),
                 );
                 return res;
             }
@@ -120,10 +194,18 @@ pub async fn serve_poster(
     Response::builder()
         .status(StatusCode::INTERNAL_SERVER_ERROR)
         .body(Body::empty())
-        .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default())
+        .unwrap_or_else(|_| Response::builder().status(500).body(Body::from("Internal Server Error")).unwrap_or_default())
 }
 
-/// Missing documentation.
+/// POST `/api/server-info` with JSON body (preferred; keeps API keys out of URLs).
+pub async fn post_server_info(
+    _state: Extension<Arc<WebServerState>>,
+    Json(req): Json<ServerInfoRequest>,
+) -> Response {
+    fetch_server_info(&req.url, &req.api_key, req.is_emby).await
+}
+
+/// GET `/api/server-info?url=...&is_emby=...` without API key (public info only).
 pub async fn get_server_info(
     _state: Extension<Arc<WebServerState>>,
     Query(params): Query<std::collections::HashMap<String, String>>,
@@ -134,15 +216,32 @@ pub async fn get_server_info(
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::from(r#"{"error":"missing or invalid 'url'"}"#))
-                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
+                .unwrap_or_else(|_| Response::builder().status(500).body(Body::from("Internal Server Error")).unwrap_or_default());
         }
     };
-    let api_key = params.get("api_key").cloned().unwrap_or_default();
+    // Do not accept api_key via query string (logs/proxies/history risk).
     let is_emby = matches!(
         params.get("is_emby").map(|s| s.as_str()),
         Some("true") | Some("1")
     );
-    let client = MediaClient::new(url.clone(), api_key, is_emby);
+    fetch_server_info(&url, "", is_emby).await
+}
+
+async fn fetch_server_info(url: &str, api_key: &str, is_emby: bool) -> Response {
+    let url = crate::config::normalize_server_url(url);
+    if !valid_server_url(&url) {
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::from(r#"{"error":"missing or invalid 'url'"}"#))
+            .unwrap_or_else(|_| Response::builder().status(500).body(Body::from("Internal Server Error")).unwrap_or_default());
+    }
+    if let Err(msg) = validate_upstream_url(&url) {
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::from(format!(r#"{{"error":"{}"}}"#, msg.replace('"', "'"))))
+            .unwrap_or_else(|_| Response::builder().status(500).body(Body::from("Internal Server Error")).unwrap_or_default());
+    }
+    let client = MediaClient::new(url.clone(), api_key.to_string(), is_emby);
     match client.get_public_server_info().await {
         Ok(info) => Response::builder()
             .status(StatusCode::OK)
@@ -158,7 +257,7 @@ pub async fn get_server_info(
                 }))
                 .unwrap_or_else(|_| "{}".to_string()),
             ))
-            .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default()),
+            .unwrap_or_else(|_| Response::builder().status(500).body(Body::from("Internal Server Error")).unwrap_or_default()),
         Err(e) => {
             tracing::debug!("get_server_info failed for {}: {}", url, e);
             Response::builder()
@@ -167,31 +266,9 @@ pub async fn get_server_info(
                     r#"{{"error":"could not reach server: {}"}}"#,
                     e.to_string().replace('"', "'")
                 )))
-                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default())
+                .unwrap_or_else(|_| Response::builder().status(500).body(Body::from("Internal Server Error")).unwrap_or_default())
         }
     }
 }
 
-pub(super) fn valid_server_url(u: &str) -> bool {
-    let trimmed = u.trim();
-    let lower = trimmed.to_lowercase();
-    (lower.starts_with("http://") || lower.starts_with("https://")) && trimmed.len() <= 512 && !trimmed.contains("..")
-}
 
-
-#[cfg(test)]
-mod generated_tests {
-    use super::*;
-    #[test]
-    fn test_serve_poster_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_get_server_info_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_get_server_info_generated_test_1() {
-        assert!(true);
-    }
-}

@@ -1,6 +1,6 @@
 //! Core JavaScript client logic for the StateSync dashboard.
 
-/// Core dashboard script string slice (Part 1: Initialization & Data Rendering).
+/// Core dashboard script (init + data rendering).
 pub const JS_CORE: &str = r#"if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
 const $ = id => document.getElementById(id);
 let currentConfig = { servers: [], sync_threshold_seconds: 5 }; let editIndex = -1;
@@ -17,6 +17,16 @@ async function authedFetch(url, opts) {
   if (r.status === 401) { showAuthModal(); throw new Error('unauthorized'); }
   return r;
 }
+async function loadPoster(url, img) {
+  try {
+    const r = await authedFetch(url);
+    if (!r.ok) return;
+    const blob = await r.blob();
+    const obj = URL.createObjectURL(blob);
+    img.onload = () => { try { URL.revokeObjectURL(obj); } catch (_) {} };
+    img.src = obj;
+  } catch (_) {}
+}
 function showAuthModal() {
   const m = $('authModal'); if (m) m.style.display = 'flex';
 }
@@ -24,13 +34,26 @@ function hideAuthModal() {
   const m = $('authModal'); if (m) m.style.display = 'none';
 }
 function submitAuth() {
-  const t = $('authToken').value.trim();
+  let t = $('authToken').value.trim();
   if (!t) return;
+  // Accept accidental "bearer:xxx" paste
+  if (t.toLowerCase().startsWith('bearer:')) t = t.slice(7).trim();
   localStorage.setItem(AUTH_TOKEN_KEY, t);
   hideAuthModal();
   loadDashboard();
 }
 function setTheme(n) { document.body.className = n === 'cyberpunk' ? '' : `theme-${n}`; localStorage.setItem('hud-theme', n); }
+function nameFromUrl(url) {
+  try {
+    let u = (url || '').trim();
+    if (!u) return 'server';
+    if (!/^https?:\/\//i.test(u)) u = 'http://' + u;
+    const h = new URL(u).hostname;
+    return h || 'server';
+  } catch (_) {
+    return (url || 'server').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0] || 'server';
+  }
+}
 async function loadDashboard() {
   try {
     const [configRes, statusRes] = await Promise.all([
@@ -38,41 +61,48 @@ async function loadDashboard() {
       authedFetch('/api/status')
     ]);
     currentConfig = await configRes.json(); const status = await statusRes.json();
-    $('syncThreshold').value = currentConfig.sync_threshold_seconds;
-    $('cfgUserMappings').value = (currentConfig.user_mappings || []).map(group => group.join(', ')).join('\n');
+    if ($('syncThreshold')) $('syncThreshold').value = currentConfig.sync_threshold_seconds;
+    if ($('cfgUserMappings')) {
+      $('cfgUserMappings').value = (currentConfig.user_mappings || []).map(group => group.join(', ')).join('\n');
+    }
     const listDiv = $('serverList');
+    if (!listDiv) return;
     if (currentConfig.servers.length === 0) {
       listDiv.textContent = '';
-      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO MEDIA SERVERS CONFIGURED';
+      const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'No servers yet. Click Add server.';
       listDiv.appendChild(empty);
     } else {
       listDiv.textContent = '';
       currentConfig.servers.forEach((srv, idx) => {
         const sStatus = status.servers.find(s => s.name === srv.name) || { users_count: 0, media_count: 0, websocket_status: 'Offline' };
         const row = document.createElement('div'); row.className = 'server-row';
-        const dirBadge = srv.sync_direction === 'send' ? ' [SEND ONLY]' : (srv.sync_direction === 'receive' ? ' [RCV ONLY]' : '');
+        const dirBadge = srv.sync_direction === 'send' ? ' · send' : (srv.sync_direction === 'receive' ? ' · receive' : '');
         const urlText = (status.servers.find(s => s.name === srv.name) || {}).url || srv.url;
 
         const left = document.createElement('div'); left.className = 'server-info';
-        const statusSpanEl = document.createElement('span'); statusSpanEl.className = 'status-' + sStatus.websocket_status;
-        statusSpanEl.textContent = '[ ' + sStatus.websocket_status.toUpperCase() + ' ]';
-        const leftInner = document.createElement('div');
-        const nameEl = document.createElement('span'); nameEl.style.cssText = 'font-weight:600;color:#fff'; nameEl.textContent = srv.name;
-        const badgeEl = document.createElement('span'); badgeEl.className = 'badge'; badgeEl.textContent = (srv.is_emby ? 'EMBY' : 'JELLYFIN') + dirBadge;
-        const urlEl = document.createElement('div'); urlEl.style.cssText = 'font-size:11px;color:var(--text);margin-top:2px'; urlEl.textContent = urlText;
-        leftInner.appendChild(nameEl); leftInner.appendChild(document.createTextNode(' ')); leftInner.appendChild(badgeEl); leftInner.appendChild(urlEl);
+        const statusSpanEl = document.createElement('span');
+        statusSpanEl.className = 'status-' + sStatus.websocket_status;
+        statusSpanEl.textContent = sStatus.websocket_status;
+        const leftInner = document.createElement('div'); leftInner.className = 'server-meta';
+        const nameEl = document.createElement('div'); nameEl.className = 'name';
+        nameEl.textContent = (srv.name || nameFromUrl(srv.url)) + ' ';
+        const badgeEl = document.createElement('span'); badgeEl.className = 'badge';
+        badgeEl.textContent = (srv.is_emby ? 'Emby' : 'Jellyfin') + dirBadge;
+        nameEl.appendChild(badgeEl);
+        const urlEl = document.createElement('div'); urlEl.className = 'url'; urlEl.textContent = urlText;
+        leftInner.appendChild(nameEl); leftInner.appendChild(urlEl);
         left.appendChild(statusSpanEl); left.appendChild(leftInner);
 
-        const right = document.createElement('div'); right.className = 'server-info';
-        const metaSpan = document.createElement('span'); metaSpan.style.fontSize = '12px';
-        if (sStatus.websocket_status === 'Scanning' || sStatus.websocket_status === 'Validating' || sStatus.websocket_status === 'Connecting') {
-          metaSpan.textContent = sStatus.websocket_status.toUpperCase() + '...';
+        const right = document.createElement('div'); right.className = 'server-info'; right.style.flex = '0 0 auto';
+        const metaSpan = document.createElement('span'); metaSpan.style.fontSize = '12px'; metaSpan.style.color = 'var(--muted)';
+        if (['Scanning','Validating','Connecting','Reconnecting'].includes(sStatus.websocket_status)) {
+          metaSpan.textContent = sStatus.websocket_status + '…';
         } else {
-          metaSpan.textContent = sStatus.users_count + ' USERS';
+          metaSpan.textContent = (sStatus.users_count || 0) + ' users';
         }
-        const editBtn = document.createElement('button'); editBtn.className = 'btn'; editBtn.textContent = '[ EDIT ]';
+        const editBtn = document.createElement('button'); editBtn.className = 'btn'; editBtn.textContent = 'Edit';
         editBtn.addEventListener('click', () => openServerModal(idx));
-        const removeBtn = document.createElement('button'); removeBtn.className = 'btn btn-danger'; removeBtn.textContent = '[ REMOVE ]';
+        const removeBtn = document.createElement('button'); removeBtn.className = 'btn btn-danger'; removeBtn.textContent = 'Remove';
         removeBtn.addEventListener('click', () => deleteServer(idx));
         right.appendChild(metaSpan); right.appendChild(editBtn); right.appendChild(removeBtn);
 
@@ -87,33 +117,27 @@ async function loadDashboard() {
         const mins = Math.floor(sess.position / 60); const secs = Math.floor(sess.position % 60).toString().padStart(2, '0');
         const durationStr = mins + ':' + secs;
         const row = document.createElement('div'); row.className = 'server-row';
-        if (sess.poster_url) { row.style.borderColor = 'var(--accent)'; row.style.padding = '6px 18px'; }
         const left = document.createElement('div'); left.className = 'server-info';
         if (sess.poster_url) {
           const img = document.createElement('img');
-          img.src = sess.poster_url;
           img.alt = '';
-          img.style.cssText = 'width:30px;height:45px;object-fit:cover;border:1px solid var(--accent);margin-right:12px;flex-shrink:0;';
+          img.style.cssText = 'width:30px;height:45px;object-fit:cover;border-radius:4px;border:1px solid var(--border);flex-shrink:0;';
+          loadPoster(sess.poster_url, img);
           left.appendChild(img);
         }
-        const meta = document.createElement('div');
-        const itemEl = document.createElement('div'); itemEl.style.cssText = 'font-weight:600;color:#fff'; itemEl.textContent = sess.item;
-        
-        const userEl = document.createElement('div'); userEl.style.cssText = 'font-size:11px;color:var(--text)';
-        if (sess.is_paused) {
-          userEl.textContent = sess.user + ' paused on ' + sess.server + '. Position is locked at ' + durationStr + '.';
-        } else {
-          userEl.textContent = sess.user + ' is watching on ' + sess.server + '. Progress is actively syncing.';
-        }
-        
+        const meta = document.createElement('div'); meta.className = 'server-meta';
+        const itemEl = document.createElement('div'); itemEl.className = 'name'; itemEl.textContent = sess.item;
+        const userEl = document.createElement('div'); userEl.className = 'url';
+        userEl.textContent = sess.is_paused
+          ? (sess.user + ' paused on ' + sess.server + ' at ' + durationStr)
+          : (sess.user + ' watching on ' + sess.server);
         meta.appendChild(itemEl); meta.appendChild(userEl);
         left.appendChild(meta);
-        const right = document.createElement('div'); right.style.cssText = 'display:flex;align-items:center;gap:10px';
-        const badge = document.createElement('span'); badge.className = 'badge'; badge.style.cssText = 'border-color:var(--accent);color:var(--accent)';
-        badge.textContent = durationStr;
+        const right = document.createElement('div'); right.style.cssText = 'display:flex;align-items:center;gap:8px';
+        const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = durationStr;
         right.appendChild(badge);
         if (sess.is_paused) {
-          const p = document.createElement('span'); p.style.cssText = 'font-size:11px;color:var(--accent)'; p.textContent = '[ PAUSED ]';
+          const p = document.createElement('span'); p.className = 'badge'; p.textContent = 'Paused';
           right.appendChild(p);
         }
         row.appendChild(left); row.appendChild(right);
@@ -121,13 +145,13 @@ async function loadDashboard() {
       });
     } else {
       activeDiv.textContent = '';
-      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'ALL QUIET. STATESYNC IS WAITING FOR SOMEONE TO PLAY A MOVIE OR SHOW.';
+      const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'No one is playing anything right now.';
       activeDiv.appendChild(empty);
     }
     const usersDiv = $('syncedUsers');
     if (!status.servers || status.servers.length === 0) {
       usersDiv.textContent = '';
-      const empty = document.createElement('div'); empty.style.color = 'var(--accent)'; empty.textContent = 'NO MEDIA SERVERS CONFIGURED';
+      const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'Add two servers to map users.';
       usersDiv.appendChild(empty);
     } else {
       usersDiv.textContent = '';
@@ -136,7 +160,7 @@ async function loadDashboard() {
       headerRow.style.cssText = 'display:grid;grid-template-columns:repeat(' + serverCount + ', 1fr);gap:6px;margin-bottom:6px';
       status.servers.forEach(srv => {
         const h = document.createElement('div');
-        h.style.cssText = 'text-align:center;color:var(--border);font-weight:600;font-size:12px;padding-bottom:6px;border-bottom:1px solid rgba(0,240,255,0.3);text-transform:uppercase';
+        h.style.cssText = 'text-align:center;color:var(--muted);font-weight:600;font-size:11px;padding-bottom:6px;border-bottom:1px solid var(--border);text-transform:uppercase';
         h.textContent = srv.name;
         headerRow.appendChild(h);
       });
@@ -155,10 +179,10 @@ async function loadDashboard() {
           cell.className = 'user-cell' + (filled ? ' filled' : ' empty');
           cell.textContent = filled ? u.name : '·';
           cell.title = filled
-            ? (u.servers.length > 1 
-                ? u.name + ' is mapped. Watch status changes will mirror in real-time.' 
-                : u.name + ' only exists on ' + status.servers[i].name + '. Playback will not sync unless mapped in settings.')
-            : (status.servers[i] ? status.servers[i].name + ' has no user named ' + u.name + ' here.' : '');
+            ? (u.servers.length > 1
+                ? u.name + ' is mapped across servers.'
+                : u.name + ' only exists on ' + status.servers[i].name + '.')
+            : (status.servers[i] ? status.servers[i].name + ' has no user named ' + u.name : '');
           row.appendChild(cell);
         }
         grid.appendChild(row);
@@ -167,10 +191,9 @@ async function loadDashboard() {
       const mappedCount = users.filter(u => u.servers.length > 1).length;
       const singleCount = users.length - mappedCount;
       const legend = document.createElement('div');
-      legend.style.cssText = 'margin-top:12px;font-size:11px;color:var(--text);opacity:0.7;display:flex;gap:16px;flex-wrap:wrap';
-      legend.innerHTML = '<span>' + users.length + ' users total</span>' +
-        '<span style="color:var(--border)">' + mappedCount + ' mapped across servers</span>' +
-        '<span style="color:var(--accent)">' + singleCount + ' single-server (need a manual mapping)</span>';
+      legend.className = 'form-hint';
+      legend.style.cssText = 'margin-top:12px;display:flex;gap:16px;flex-wrap:wrap';
+      legend.textContent = users.length + ' users · ' + mappedCount + ' mapped · ' + singleCount + ' single-server';
       usersDiv.appendChild(legend);
     }
 "#;

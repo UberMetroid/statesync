@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
@@ -120,13 +121,19 @@ pub fn print_help() {
     );
     println!();
     println!("Environment Variables:");
-    println!("  STATESYNC_BIND                 Listen address (default: 127.0.0.1:4601)");
+    println!("  STATESYNC_BIND                 Listen address (default: 0.0.0.0:4601)");
     println!(
-        "                                  Refuses non-loopback binds without STATESYNC_WEB_AUTH."
+        "                                  Non-loopback binds require STATESYNC_WEB_AUTH."
     );
     println!("  STATESYNC_WEB_AUTH             'bearer:<token>' required for non-loopback binds.");
     println!(
         "  STATESYNC_ALLOW_INSECURE_HTTP  Set 'true' to permit http:// URLs to upstream servers."
+    );
+    println!(
+        "  STATESYNC_ACCEPT_INVALID_CERTS Set 'true' to skip TLS cert verification (self-signed)."
+    );
+    println!(
+        "  STATESYNC_FUZZY_USER_MATCH     Set 'true' to enable substring username matching."
     );
     println!("  STATESYNC_SERVER_<N>_*         Per-server env-var config (see README).");
     println!("  STATESYNC_SYNC_THRESHOLD_SECONDS   Sync threshold (default 5).");
@@ -137,6 +144,7 @@ pub fn print_help() {
     println!("  TZ                             Container timezone.");
 }
 
+/// Docker-friendly default; process refuses this bind without STATESYNC_WEB_AUTH.
 pub const DEFAULT_BIND: &str = "0.0.0.0:4601";
 
 pub fn resolve_bind_addr() -> String {
@@ -176,32 +184,30 @@ pub fn install_shutdown_handler() -> tokio::sync::oneshot::Receiver<()> {
     rx
 }
 
+/// Non-loopback binds require `STATESYNC_WEB_AUTH`.
+pub fn enforce_bind_auth(bind_addr: &str, web_auth: Option<&String>) -> anyhow::Result<()> {
+    use statesync::config::is_loopback_bind;
+    if is_loopback_bind(bind_addr) || web_auth.is_some() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "Refusing to bind non-loopback address '{}' without STATESYNC_WEB_AUTH. \
+         Set STATESYNC_WEB_AUTH=bearer:<token> (e.g. openssl rand -hex 32), \
+         or bind loopback only (STATESYNC_BIND=127.0.0.1:4601).",
+        bind_addr
+    );
+}
 
-#[cfg(test)]
-mod generated_tests {
-    use super::*;
-    #[test]
-    fn test_init_clients_parallel_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_print_help_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_resolve_bind_addr_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_resolve_web_auth_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_install_shutdown_handler_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_install_shutdown_handler_generated_test_1() {
-        assert!(true);
+pub async fn drain_ws_handles(handles: Vec<tokio::task::JoinHandle<()>>, timeout: Duration) {
+    let drain = async {
+        for h in handles {
+            let _ = h.await;
+        }
+    };
+    if tokio::time::timeout(timeout, drain).await.is_err() {
+        warn!(
+            "WebSocket loops did not exit within {:?}; continuing with reload",
+            timeout
+        );
     }
 }

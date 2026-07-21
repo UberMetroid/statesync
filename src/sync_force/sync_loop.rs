@@ -13,6 +13,7 @@ const FORCE_ITEM_CAP: usize = 100_000;
 pub async fn force_sync_pair(
     src_idx: usize,
     tgt_idx: usize,
+    src_username: &str,
     src_user_id: &str,
     tgt_user_id: &str,
     ctx: &ForceContext,
@@ -122,8 +123,9 @@ pub async fn force_sync_pair(
             .await;
             match update_res {
                 Ok(Ok(())) => {
+                    // Match live-sync key shape: (username_lowercase, provider_id).
                     let key = (
-                        src_user_id.to_lowercase(),
+                        src_username.to_lowercase(),
                         if !imdb.is_empty() {
                             imdb.clone()
                         } else {
@@ -136,6 +138,7 @@ pub async fn force_sync_pair(
                         SyncHistoryValue {
                             position_ticks: source_pos,
                             timestamp: Instant::now(),
+                            played: true,
                         },
                     );
                     drop(st);

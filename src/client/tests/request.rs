@@ -5,7 +5,10 @@ use super::TEST_LOCK;
 
 #[test]
 fn test_client_new() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = match TEST_LOCK.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     let client_emby = MediaClient::new("http://127.0.0.1:8096/".to_string(), "api_key".to_string(), true);
     assert_eq!(client_emby.url, "http://127.0.0.1:8096");
     assert!(client_emby.is_emby);
@@ -23,7 +26,10 @@ fn test_client_new() {
 
 #[test]
 fn test_retry_enabled() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = match TEST_LOCK.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     unsafe {
         std::env::set_var("STATESYNC_HTTP_RETRY", "off");
     }
@@ -42,7 +48,10 @@ fn test_retry_enabled() {
 
 #[tokio::test]
 async fn test_send_with_retry_success() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = match TEST_LOCK.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     let mut server = mockito::Server::new_async().await;
     let mock_call = server.mock("GET", "/ok")
         .with_status(200)
@@ -57,7 +66,10 @@ async fn test_send_with_retry_success() {
 
 #[tokio::test]
 async fn test_send_with_retry_fails_eventually() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = match TEST_LOCK.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     let mut server = mockito::Server::new_async().await;
     let mock_call = server.mock("GET", "/fail")
         .with_status(500)
@@ -76,7 +88,10 @@ async fn test_send_with_retry_fails_eventually() {
 
 #[tokio::test]
 async fn test_send_with_retry_unauthorized_fast_fail() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = match TEST_LOCK.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     let mut server = mockito::Server::new_async().await;
     let mock_call = server.mock("GET", "/auth_fail")
         .with_status(401)
@@ -95,7 +110,10 @@ async fn test_send_with_retry_unauthorized_fast_fail() {
 
 #[test]
 fn test_url_path() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = match TEST_LOCK.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     let client_emby = MediaClient::new("http://localhost".to_string(), "k".to_string(), true);
     assert_eq!(client_emby.url_path("/Users"), "http://localhost/Users");
 
@@ -108,7 +126,10 @@ fn test_url_path() {
 
 #[test]
 fn test_add_auth_headers() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = match TEST_LOCK.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     let client_emby = MediaClient::new("http://localhost".to_string(), "emby_key".to_string(), true);
     let req = client_emby.client.get("http://localhost");
     let req = client_emby.add_auth_headers(req).build().unwrap();

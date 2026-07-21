@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
-use statesync::client::MediaClient;
 use statesync::config::Config;
 use statesync::state::AppState;
 use statesync::sync_force::{Direction, ForceContext, ForceSyncState, run_force_sync};
+use super::helpers::init_clients_parallel;
 
 pub(super) fn parse_sync_force_args(args: &[String]) -> Direction {
     for a in args.iter().skip(2) {
@@ -31,16 +31,38 @@ pub async fn run_sync_force_cli(args: &[String]) -> anyhow::Result<()> {
         std::process::exit(1);
     }
     let server_names: Vec<String> = config.servers.iter().map(|s| s.name.clone()).collect();
-    let mut clients = Vec::new();
-    for s in &config.servers {
-        let client = Arc::new(MediaClient::new(
-            s.url.clone(),
-            s.api_key.clone(),
-            s.is_emby,
-        ));
-        clients.push(client);
-    }
     let state = Arc::new(tokio::sync::Mutex::new(AppState::new(Vec::new())));
+    {
+        let mut st = state.lock().await;
+        st.websocket_statuses = vec!["Offline".to_string(); config.servers.len()];
+    }
+
+    eprintln!("Initializing server caches for force-sync...");
+    let (clients, caches) = init_clients_parallel(&config, &state).await?;
+    if clients.len() != config.servers.len() {
+        eprintln!(
+            "Failed to initialize all servers ({}/{}). Aborting force-sync.",
+            clients.len(),
+            config.servers.len()
+        );
+        std::process::exit(1);
+    }
+    let empty_user_caches: Vec<&str> = caches
+        .iter()
+        .filter(|c| c.users.is_empty())
+        .map(|c| c.name.as_str())
+        .collect();
+    if !empty_user_caches.is_empty() {
+        eprintln!(
+            "Warning: no users loaded for: {}. Force-sync may do little or no work.",
+            empty_user_caches.join(", ")
+        );
+    }
+    {
+        let mut st = state.lock().await;
+        st.caches = caches;
+    }
+
     let tracker = state.lock().await.sync_force.clone();
     let direction = parse_sync_force_args(args);
 
@@ -111,18 +133,4 @@ pub async fn run_sync_force_cli(args: &[String]) -> anyhow::Result<()> {
         std::process::exit(1);
     }
     Ok(())
-}
-
-
-#[cfg(test)]
-mod generated_tests {
-    use super::*;
-    #[test]
-    fn test_run_sync_force_cli_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_run_sync_force_cli_generated_test_1() {
-        assert!(true);
-    }
 }

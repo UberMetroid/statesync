@@ -20,6 +20,8 @@ pub struct SyncHistoryValue {
     pub position_ticks: i64,
     /// Missing documentation.
     pub timestamp: Instant,
+    /// Whether the last synced update marked the item as played.
+    pub played: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

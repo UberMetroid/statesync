@@ -88,7 +88,10 @@ pub fn create_router(web_state: Arc<WebServerState>) -> Router {
             "/api/sync/force/cancel",
             axum::routing::post(crate::web_api::post_sync_force_cancel),
         )
-        .route("/api/server-info", get(crate::web_api::get_server_info));
+        .route(
+            "/api/server-info",
+            get(crate::web_api::get_server_info).post(crate::web_api::post_server_info),
+        );
 
     public
         .merge(protected)

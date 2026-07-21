@@ -191,11 +191,12 @@ impl MediaClient {
             utf8_percent_encode(item_id, NON_ALPHANUMERIC)
         );
         let url = self.url_path(&path);
-        let resp = self
-            .add_auth_headers(self.client.get(&url))
-            .send()
-            .await
-            .context("Failed to get item details")?;
+        let resp = send_with_retry(
+            self.add_auth_headers(self.client.get(&url)),
+            "get_item_providers",
+        )
+        .await
+        .context("Failed to get item details")?;
 
         let data: serde_json::Value = resp.json().await.context("Failed to parse item response")?;
 
@@ -231,20 +232,3 @@ impl MediaClient {
     }
 }
 
-
-#[cfg(test)]
-mod generated_tests {
-    use super::*;
-    #[test]
-    fn test_get_public_server_info_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_get_users_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_get_library_items_generated_test_0() {
-        assert!(true);
-    }
-}

@@ -132,11 +132,12 @@ pub async fn sync_progress_to_targets(
             if let Some(last_sync) = state.last_syncs.get(&history_key) {
                 let tick_diff = last_sync.position_ticks.abs_diff(position);
                 let time_diff = last_sync.timestamp.elapsed();
-
-                if tick_diff < (config.sync_threshold_seconds as u64 * 10_000_000)
-                    && time_diff < Duration::from_secs(5)
-                    && !played
-                {
+                let within_threshold =
+                    tick_diff < (config.sync_threshold_seconds as u64 * 10_000_000)
+                        && time_diff < Duration::from_secs(5);
+                // Debounce progress *and* played=true echoes so bidirectional
+                // UserDataChanged events do not ping-pong indefinitely.
+                if within_threshold && last_sync.played == played {
                     continue;
                 }
             }
@@ -181,6 +182,7 @@ pub async fn sync_progress_to_targets(
                 SyncHistoryValue {
                     position_ticks: position,
                     timestamp: now,
+                    played,
                 },
             );
 

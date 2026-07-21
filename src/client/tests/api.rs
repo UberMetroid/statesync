@@ -167,9 +167,11 @@ async fn test_update_progress() {
     let res = client.update_progress("u1", "item1", 1000, true).await;
     assert!(res.is_ok());
     mock_ok.assert_async().await;
+    // send_with_retry attempts up to 3 times on 5xx when retry is enabled.
     let mock_err = server.mock("POST", "/Users/u1/Items/item1/UserData")
         .with_status(500)
         .with_body("error message")
+        .expect(3)
         .create_async().await;
     let res_err = client.update_progress("u1", "item1", 1000, true).await;
     assert!(res_err.is_err());

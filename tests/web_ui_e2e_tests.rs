@@ -114,6 +114,11 @@ async fn test_e2e_api_test_connection_emby_and_jellyfin() {
     let json_res: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
 
     assert_eq!(json_res["status"], "ok");
-    assert!(json_res["message"].as_str().unwrap().contains("Connected to server and found 1 users"));
+    let msg = json_res["message"].as_str().unwrap();
+    assert!(
+        msg.contains("Connected") && msg.contains("1 users"),
+        "unexpected message: {}",
+        msg
+    );
     mock_users.assert_async().await;
 }

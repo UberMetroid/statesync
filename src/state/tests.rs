@@ -13,7 +13,21 @@ mod tests {
     }
 
     #[test]
-    fn test_substring_username_match() {
+    fn test_substring_username_match_disabled_by_default() {
+        unsafe {
+            std::env::remove_var("STATESYNC_FUZZY_USER_MATCH");
+        }
+        let mut target_users = HashMap::new();
+        target_users.insert("john".to_string(), "id123".to_string());
+        let mapped = find_mapped_user_id("John Doe", &target_users, &[]);
+        assert_eq!(mapped, None);
+    }
+
+    #[test]
+    fn test_substring_username_match_when_enabled() {
+        unsafe {
+            std::env::set_var("STATESYNC_FUZZY_USER_MATCH", "true");
+        }
         let mut target_users = HashMap::new();
         target_users.insert("john".to_string(), "id123".to_string());
         let mapped = find_mapped_user_id("John Doe", &target_users, &[]);
@@ -23,6 +37,9 @@ mod tests {
         target_users2.insert("john doe".to_string(), "id456".to_string());
         let mapped2 = find_mapped_user_id("john", &target_users2, &[]);
         assert_eq!(mapped2, Some("id456".to_string()));
+        unsafe {
+            std::env::remove_var("STATESYNC_FUZZY_USER_MATCH");
+        }
     }
 
     #[test]
@@ -54,11 +71,18 @@ mod tests {
 
     #[test]
     fn test_substring_picks_closest_match() {
+        unsafe {
+            std::env::set_var("STATESYNC_FUZZY_USER_MATCH", "true");
+        }
         let mut target_users = HashMap::new();
         target_users.insert("alice smith".to_string(), "id_long".to_string());
         target_users.insert("alice".to_string(), "id_short".to_string());
+        // Exact match still wins when present.
         let mapped = find_mapped_user_id("alice", &target_users, &[]);
         assert_eq!(mapped, Some("id_short".to_string()));
+        unsafe {
+            std::env::remove_var("STATESYNC_FUZZY_USER_MATCH");
+        }
     }
 
     #[test]

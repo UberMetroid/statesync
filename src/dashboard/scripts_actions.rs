@@ -15,16 +15,16 @@ pub const JS_ACTIONS: &str = r#"    const logsDiv = $('syncLogs');
           const tBadge = log.target_is_emby ? 'EMBY' : 'JELLYFIN';
           line.appendChild(document.createTextNode(log.message.toUpperCase() + ' FROM '));
           const fromSpan = document.createElement('span'); fromSpan.style.color = sCol;
-          fromSpan.textContent = '[' + sBadge + ': ' + log.source_name.toUpperCase() + ']';
+          fromSpan.textContent = sBadge + ':' + log.source_name;
           line.appendChild(fromSpan);
-          line.appendChild(document.createTextNode(' -> '));
+          line.appendChild(document.createTextNode(' → '));
           const toSpan = document.createElement('span'); toSpan.style.color = tCol;
-          toSpan.textContent = '[' + tBadge + ': ' + log.target_name.toUpperCase() + ']';
+          toSpan.textContent = tBadge + ':' + log.target_name;
           line.appendChild(toSpan);
         } else {
           const color = log.level === 'error' ? 'var(--red)' : (log.level === 'warn' ? 'var(--accent)' : 'var(--text)');
           const inner = document.createElement('span'); inner.style.color = color;
-          inner.textContent = '[' + log.level.toUpperCase() + '] ' + log.message.toUpperCase();
+          inner.textContent = log.level + ': ' + log.message;
           line.appendChild(inner);
         }
         logsDiv.appendChild(line);

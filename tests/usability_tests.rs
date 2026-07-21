@@ -32,17 +32,16 @@ fn test_dashboard_usability_html_structure() {
     // Verify critical usability modal & form IDs exist for user interaction
     assert!(html_string.contains("id=\"serverModal\""), "Modal element #serverModal missing");
     assert!(html_string.contains("id=\"serverForm\""), "Form element #serverForm missing");
-    assert!(html_string.contains("id=\"serverName\""), "Input #serverName missing");
     assert!(html_string.contains("id=\"serverUrl\""), "Input #serverUrl missing");
     assert!(html_string.contains("id=\"serverKey\""), "Input #serverKey missing");
-    assert!(html_string.contains("id=\"serverType\""), "Select dropdown #serverType missing");
-    assert!(html_string.contains("id=\"serverDirection\""), "Select dropdown #serverDirection missing");
+    assert!(html_string.contains("id=\"serverType\""), "server type control missing");
+    assert!(html_string.contains("id=\"serverDirection\""), "server direction control missing");
 
-    // Verify Action Buttons with clear, intuitive labels
-    assert!(html_string.contains("AUTO"), "Autofill button label missing");
-    assert!(html_string.contains("PING LINK"), "Ping link button label missing");
-    assert!(html_string.contains("SAVE"), "Save button label missing");
-    assert!(html_string.contains("SAVE SETTINGS"), "Save settings button label missing");
+    // Verify action labels (simple UI, no bracket chrome)
+    assert!(html_string.contains("Test connection"), "Test connection button missing");
+    assert!(html_string.contains("Add server"), "Add server button missing");
+    assert!(html_string.contains("Save settings"), "Save settings button missing");
+    assert!(!html_string.contains("[ MAPPED USERS ]"), "Old bracket chrome still present");
 }
 
 // 2. Toast Notification Usability: Human-Readable User Feedback
@@ -54,10 +53,9 @@ fn test_dashboard_usability_toast_feedback() {
     assert!(js_code.contains("showToast"), "showToast helper missing in JavaScript assets");
 
     // Assert human-readable status toasts for user actions
-    assert!(js_code.contains("LINK DATA INCOMPLETE"), "Missing missing-data toast message");
-    assert!(js_code.contains("PINGING LINK ADDRESS..."), "Missing pinging progress toast message");
-    assert!(js_code.contains("AUTO FILLED:"), "Missing autofill success toast message");
-    assert!(js_code.contains("AUTO FILL FAILED:"), "Missing autofill failure toast message");
+    assert!(js_code.contains("Enter a server address and API key first"), "Missing missing-data toast");
+    assert!(js_code.contains("Testing connection"), "Missing connection progress toast");
+    assert!(js_code.contains("nameFromUrl"), "URL→name helper missing");
 }
 
 // 3. API Error Usability: Clear Diagnostic Feedback over HTTP
@@ -75,7 +73,7 @@ async fn test_api_test_connection_usability_error_messages() {
         .unwrap();
 
     let response = app.clone().oneshot(invalid_req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json_res: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
@@ -85,15 +83,16 @@ async fn test_api_test_connection_usability_error_messages() {
         "User error message must explicitly state invalid URL scheme"
     );
 
-    // Test missing key usability response
+    // Unreachable host still returns a structured error body (bad gateway).
     let missing_data_req = Request::builder()
         .method("POST")
         .uri("/api/test_connection")
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"url": "http://127.0.0.1:8096", "api_key": "  ", "is_emby": false}"#))
+        .body(Body::from(r#"{"url": "http://127.0.0.1:1", "api_key": "key", "is_emby": false}"#))
         .unwrap();
 
     let response2 = app.oneshot(missing_data_req).await.unwrap();
+    assert_eq!(response2.status(), StatusCode::BAD_GATEWAY);
     let body_bytes2 = axum::body::to_bytes(response2.into_body(), usize::MAX).await.unwrap();
     let json_res2: serde_json::Value = serde_json::from_slice(&body_bytes2).unwrap();
     assert_eq!(json_res2["status"], "error");

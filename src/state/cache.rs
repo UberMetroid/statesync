@@ -48,14 +48,32 @@ pub async fn init_server_cache(name: &str, client: &MediaClient) -> Result<Serve
     }
 
     let mut imdb_flat = HashMap::new();
-    for (k, v) in imdb_to_id {
-        if let Some(first) = v.into_iter().next() {
+    for (k, mut v) in imdb_to_id {
+        if v.len() > 1 {
+            tracing::warn!(
+                "server '{}': IMDb id '{}' maps to {} items; using first id '{}' (multi-version libraries may sync the wrong version)",
+                name,
+                k,
+                v.len(),
+                v.first().map(|s| s.as_str()).unwrap_or("?")
+            );
+        }
+        if let Some(first) = v.drain(..).next() {
             imdb_flat.insert(k, first);
         }
     }
     let mut tmdb_flat = HashMap::new();
-    for (k, v) in tmdb_to_id {
-        if let Some(first) = v.into_iter().next() {
+    for (k, mut v) in tmdb_to_id {
+        if v.len() > 1 {
+            tracing::warn!(
+                "server '{}': TMDb id '{}' maps to {} items; using first id '{}' (multi-version libraries may sync the wrong version)",
+                name,
+                k,
+                v.len(),
+                v.first().map(|s| s.as_str()).unwrap_or("?")
+            );
+        }
+        if let Some(first) = v.drain(..).next() {
             tmdb_flat.insert(k, first);
         }
     }

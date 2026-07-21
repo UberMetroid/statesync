@@ -41,8 +41,9 @@ fn test_invalid_schemes_rejected() {
     assert!(validate_config(&cfg).is_err());
     cfg.servers[0].url = "ws://127.0.0.1:8096".to_string();
     assert!(validate_config(&cfg).is_err());
+    // Bare host:port is accepted and normalized to http://
     cfg.servers[0].url = "127.0.0.1:8096".to_string();
-    assert!(validate_config(&cfg).is_err());
+    assert!(validate_config(&cfg).is_ok());
 }
 
 #[test]
@@ -67,10 +68,12 @@ fn test_config_default_helpers() {
 }
 
 #[test]
-fn test_validate_server_name_empty() {
+fn test_validate_server_name_empty_is_filled_from_url() {
     let mut cfg = default_config();
     cfg.servers.push(valid_server(""));
-    assert!(validate_config(&cfg).is_err());
+    cfg.servers[0].url = "http://192.168.1.50:8096".to_string();
+    // Empty name is auto-derived from hostname during validation/normalize.
+    assert!(validate_config(&cfg).is_ok());
 }
 
 #[test]

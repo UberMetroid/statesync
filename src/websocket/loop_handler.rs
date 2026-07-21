@@ -247,16 +247,3 @@ pub async fn handle_websocket_loop(
     }
 }
 
-
-#[cfg(test)]
-mod generated_tests {
-    use super::*;
-    #[test]
-    fn test_handle_websocket_loop_generated_test_0() {
-        assert!(true);
-    }
-    #[test]
-    fn test_handle_websocket_loop_generated_test_1() {
-        assert!(true);
-    }
-}

@@ -165,6 +165,7 @@ mod tests {
         let cancelled = crate::sync_force::sync_loop::force_sync_pair(
             0,
             1,
+            "alice",
             "u1",
             "u2",
             &ctx,

@@ -85,7 +85,8 @@ pub async fn resolve_target_user(
         if let Ok(new_users) = client_target.get_users().await {
             let mut state_write = state_lock.lock().await;
             if target_index < state_write.caches.len() {
-                state_write.caches[target_index].users = new_users;
+                // Merge so a partial /Users response cannot drop known users.
+                state_write.caches[target_index].merge_users(new_users);
             }
         }
         state = state_lock.lock().await;

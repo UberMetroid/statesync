@@ -1,22 +1,24 @@
-//! Modal handlers, event listeners, and API triggers for the StateSync web dashboard.
+//! Modal handlers and API triggers for the StateSync web dashboard.
 
-/// Modal and event listener dashboard script string slice (Part 3).
+/// Modal and event listener dashboard script.
 pub const JS_MODALS: &str = r#"function openServerModal(idx) {
   editIndex = idx; const isAdd = idx === -1;
-  $('modalTitle').innerText = isAdd ? '[ ADD MEDIA SERVER ]' : '[ EDIT MEDIA SERVER ]';
+  $('modalTitle').innerText = isAdd ? 'Add server' : 'Edit server';
   if (isAdd) {
     $('serverForm').reset();
+    $('serverName').value = '';
     pickType('jellyfin');
     pickDirection('both');
   } else {
     const srv = currentConfig.servers[idx];
     pickType(srv.is_emby ? 'emby' : 'jellyfin');
-    $('serverName').value = srv.name;
+    $('serverName').value = srv.name || '';
     $('serverUrl').value = srv.url;
     $('serverKey').value = srv.api_key;
     pickDirection(srv.sync_direction || 'both');
   }
   $('serverModal').style.display = 'flex';
+  setTimeout(() => { try { $('serverUrl').focus(); } catch(_){} }, 50);
 }
 function pickType(t) {
   $('serverType').value = t;
@@ -29,68 +31,56 @@ function pickDirection(d) {
     b.classList.toggle('active', b.getAttribute('data-dir') === d);
   });
 }
-async function autoFetchServerName() {
-  const btn = $('autoNameBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '...'; }
-  const url = $('serverUrl').value.trim();
-  const api_key = $('serverKey').value;
-  const is_emby = $('serverType').value === 'emby';
-  if (!url) {
-    showToast('ENTER SERVER ADDRESS FIRST');
-    if (btn) { btn.disabled = false; btn.textContent = '↻ AUTO'; }
-    return;
-  }
-  try {
-    const params = new URLSearchParams({ url, is_emby: is_emby ? 'true' : 'false' });
-    if (api_key) params.set('api_key', api_key);
-    const res = await authedFetch('/api/server-info?' + params.toString());
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      showToast('AUTO FILL FAILED: ' + (data.error || res.status));
-      if (btn) { btn.disabled = false; btn.textContent = '↻ AUTO'; }
-      return;
-    }
-    const data = await res.json();
-    if (typeof data.is_emby === 'boolean') {
-      $('serverType').value = data.is_emby ? 'emby' : 'jellyfin';
-    }
-    if (data.name) {
-      $('serverName').value = data.name;
-      showToast('AUTO FILLED: ' + data.name + (data.is_emby ? ' [EMBY]' : ' [JELLYFIN]'));
-    } else {
-      showToast('SERVER DID NOT RETURN A NAME');
-    }
-  } catch (err) {
-    showToast('AUTO FILL FAILED: ' + err.message);
-  }
-  if (btn) { btn.disabled = false; btn.textContent = '↻ AUTO'; }
-}
 function openSettingsModal() { $('settingsModal').style.display = 'flex'; }
 function closeModal(id) { $(id).style.display = 'none'; }
 function testConnection() {
-  const type = $('serverType').value;
-  const url = $('serverUrl').value.trim();
+  let url = $('serverUrl').value.trim();
   const api_key = $('serverKey').value.trim();
-  if (!url || !api_key) return showToast('LINK DATA INCOMPLETE (URL & API KEY REQUIRED)');
-  showToast('PINGING LINK ADDRESS...');
-  authedFetch('/api/test_connection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, api_key, is_emby: type === 'emby' }) })
+  let type = $('serverType').value;
+  if (!url || !api_key) return showToast('Enter a server address and API key first');
+  showToast('Testing connection…');
+  authedFetch('/api/test_connection', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, api_key, is_emby: type === 'emby' })
+  })
     .then(async r => {
       const d = await r.json();
-      showToast((d.message || d.status || 'UNKNOWN').toUpperCase());
+      if (d.status === 'ok') {
+        if (typeof d.is_emby === 'boolean') {
+          pickType(d.is_emby ? 'emby' : 'jellyfin');
+        }
+        if (d.url) $('serverUrl').value = d.url;
+        showToast(d.message || 'Connected');
+      } else {
+        showToast(d.message || 'Connection failed');
+      }
     })
-    .catch((err) => showToast('LINK RESPONSE FAILED: ' + (err.message || 'UNREACHABLE').toUpperCase()));
+    .catch((err) => showToast('Connection failed: ' + (err.message || 'unreachable')));
 }
 $('serverForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const s = { name: $('serverName').value, url: $('serverUrl').value, api_key: $('serverKey').value, is_emby: $('serverType').value === 'emby', sync_direction: $('serverDirection').value, allow_insecure_http: $('serverUrl').value.startsWith('http://') };
+  let url = $('serverUrl').value.trim();
+  const api_key = $('serverKey').value.trim();
+  if (!url || !api_key) return showToast('Enter a server address and API key first');
+  // Name is optional — backend fills from hostname if empty
+  let name = ($('serverName').value || '').trim();
+  if (!name) name = nameFromUrl(url);
+  const s = {
+    name,
+    url,
+    api_key,
+    is_emby: $('serverType').value === 'emby',
+    sync_direction: $('serverDirection').value || 'both',
+    allow_insecure_http: true
+  };
   if (editIndex === -1) { currentConfig.servers.push(s); } else { currentConfig.servers[editIndex] = s; }
   closeModal('serverModal'); await saveConfig();
 });
 async function deleteServer(idx) {
   const srv = currentConfig.servers[idx];
-  if (!confirm(`Are you sure you want to remove the server "${srv.name}"?`)) {
-    return;
-  }
+  const label = srv.name || srv.url || 'this server';
+  if (!confirm('Remove ' + label + '?')) return;
   currentConfig.servers.splice(idx, 1);
   await saveConfig();
 }
@@ -108,11 +98,22 @@ async function saveSettings() {
 }
 async function saveConfig() {
   try {
-    const res = await authedFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentConfig) });
-    showToast((await res.json()).message.toUpperCase()); setTimeout(loadDashboard, 1200);
-  } catch (err) { showToast('WRITE CONFIG FAILED'); }
+    const res = await authedFetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(currentConfig)
+    });
+    const body = await res.json();
+    showToast(body.message || (res.ok ? 'Saved' : 'Save failed'));
+    setTimeout(loadDashboard, 800);
+  } catch (err) { showToast('Save failed'); }
 }
-function showToast(msg) { const toast = $('toast'); toast.innerText = `> ${msg}`; toast.style.display = 'block'; setTimeout(() => { toast.style.display = 'none'; }, 4000); }
+function showToast(msg) {
+  const toast = $('toast');
+  toast.innerText = msg;
+  toast.style.display = 'block';
+  setTimeout(() => { toast.style.display = 'none'; }, 4500);
+}
 function formatAgo(ms) {
   if (ms < 0) return 'just now';
   const s = Math.floor(ms / 1000);
@@ -127,13 +128,13 @@ function formatAgo(ms) {
 async function refreshUsers() {
   const btn = $('refreshUsersBtn');
   if (btn) btn.disabled = true;
-  showToast('REFRESHING USER LISTS...');
+  showToast('Refreshing users…');
   try {
     const res = await authedFetch('/api/users/refresh', { method: 'POST' });
     const data = await res.json();
-    showToast(`REFRESHED: ${(data.results || []).length} SERVERS`);
+    showToast('Refreshed ' + ((data.results || []).length) + ' server(s)');
   } catch (err) {
-    showToast('REFRESH FAILED: ' + err.message);
+    showToast('Refresh failed: ' + err.message);
   }
   if (btn) btn.disabled = false;
   loadDashboard();
@@ -143,23 +144,27 @@ async function forceSync() {
   const btn = $('forceSyncBtn');
   if (btn && btn.disabled) return;
   if (btn) btn.disabled = true;
-  showToast('FORCE SYNC STARTED');
+  showToast('Force sync started');
   try {
-    const res = await authedFetch('/api/sync/force', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direction: 'both' }) });
+    await authedFetch('/api/sync/force', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ direction: 'both' })
+    });
     pollForceSync();
   } catch (err) {
-    showToast('FORCE SYNC FAILED: ' + err.message);
+    showToast('Force sync failed: ' + err.message);
     if (btn) btn.disabled = false;
   }
 }
 async function cancelForceSync() {
   const btn = $('fsCancelBtn');
   if (btn) btn.disabled = true;
-  showToast('CANCEL REQUESTED (stops after current item)');
+  showToast('Cancel requested');
   try {
     await authedFetch('/api/sync/force/cancel', { method: 'POST' });
   } catch (err) {
-    showToast('CANCEL FAILED: ' + err.message);
+    showToast('Cancel failed: ' + err.message);
     if (btn) btn.disabled = false;
   }
 }
@@ -190,8 +195,8 @@ function renderForceSync(s) {
   const elapsed = s.finished_at && s.started_at
     ? Math.max(1, Math.round((new Date(s.finished_at) - new Date(s.started_at)) / 1000))
     : (s.started_at ? Math.round((Date.now() - new Date(s.started_at).getTime()) / 1000) : 0);
-  const base = `[${s.state.toUpperCase()}] processed=${s.processed} ok=${s.succeeded} skip=${s.skipped} fail=${s.failed} (${elapsed}s)`;
-  div.textContent = base + (s.last_error ? ` | last: ${s.last_error}` : '');
+  div.textContent = s.state + ': processed ' + s.processed + ' · ok ' + s.succeeded + ' · skip ' + s.skipped + ' · fail ' + s.failed + ' (' + elapsed + 's)'
+    + (s.last_error ? ' · ' + s.last_error : '');
 }
 function toggleLogs() {
   const logsDiv = $('syncLogs');
@@ -200,12 +205,12 @@ function toggleLogs() {
   const collapsed = logsDiv.style.display === 'none';
   if (collapsed) {
     logsDiv.style.display = 'block';
-    btn.textContent = '[ COLLAPSE ]';
+    btn.textContent = 'Collapse';
     logsDiv.scrollTop = logsDiv.scrollHeight;
     localStorage.setItem('logs-expanded', 'true');
   } else {
     logsDiv.style.display = 'none';
-    btn.textContent = '[ EXPAND ]';
+    btn.textContent = 'Expand';
     localStorage.setItem('logs-expanded', 'false');
   }
 }
@@ -215,11 +220,19 @@ function initLogsToggle() {
   const btn = $('toggleLogsBtn');
   if (logsDiv && btn) {
     logsDiv.style.display = expanded ? 'block' : 'none';
-    btn.textContent = expanded ? '[ COLLAPSE ]' : '[ EXPAND ]';
+    btn.textContent = expanded ? 'Collapse' : 'Expand';
   }
 }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { ['serverModal','settingsModal','authModal'].forEach(id => { const m=$(id); if (m && m.style.display === 'flex') m.style.display='none'; }); } });
-const savedTheme = localStorage.getItem('hud-theme') || 'cyberpunk'; setTheme(savedTheme); $('themeSelector').value = savedTheme;
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    ['serverModal','settingsModal','authModal'].forEach(id => {
+      const m = $(id); if (m && m.style.display === 'flex') m.style.display = 'none';
+    });
+  }
+});
+const savedTheme = localStorage.getItem('hud-theme') || 'cyberpunk';
+setTheme(savedTheme);
+if ($('themeSelector')) $('themeSelector').value = savedTheme;
 initLogsToggle();
 document.addEventListener('DOMContentLoaded', () => {
   const b = $('authSubmitBtn'); if (b) b.addEventListener('click', submitAuth);

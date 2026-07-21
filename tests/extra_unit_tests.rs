@@ -24,8 +24,9 @@ mod extra_tests {
     #[test] fn test_server_name_valid_underscore() { assert!(valid_server_name("server_1")); }
     #[test] fn test_server_name_invalid_empty() { assert!(!valid_server_name("")); }
     #[test] fn test_server_name_invalid_too_long() { assert!(!valid_server_name(&"a".repeat(65))); }
-    #[test] fn test_server_name_invalid_space() { assert!(!valid_server_name("server 1")); }
-    #[test] fn test_server_name_invalid_special() { assert!(!valid_server_name("server@")); }
+    #[test] fn test_server_name_allows_space() { assert!(valid_server_name("server 1")); }
+    #[test] fn test_server_name_allows_at() { assert!(valid_server_name("server@home")); }
+    #[test] fn test_server_name_rejects_slash() { assert!(!valid_server_name("server/path")); }
 
     // --- mask_api_key tests (12 tests) ---
     #[test] fn test_mask_key_empty() { assert_eq!(mask_api_key(""), ""); }
@@ -78,30 +79,59 @@ mod extra_tests {
         map
     }
 
+    static FUZZY_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test] fn test_find_user_exact() { assert_eq!(find_mapped_user_id("alice", &prep_users(), &[]), Some("id_alice".to_string())); }
     #[test] fn test_find_user_exact_case() { assert_eq!(find_mapped_user_id("ALICE", &prep_users(), &[]), Some("id_alice".to_string())); }
     #[test] fn test_find_user_mapping_single() { assert_eq!(find_mapped_user_id("ali", &prep_users(), &[vec!["ali".to_string(), "alice".to_string()]]), Some("id_alice".to_string())); }
     #[test] fn test_find_user_mapping_multiple() { assert_eq!(find_mapped_user_id("alias", &prep_users(), &[vec!["alias".to_string(), "bob".to_string(), "charlie".to_string()]]), Some("id_bob".to_string())); }
-    #[test] fn test_find_user_substring_contained() { assert_eq!(find_mapped_user_id("alice_smith", &prep_users(), &[]), Some("id_alice".to_string())); }
-    #[test] fn test_find_user_substring_contains() { assert_eq!(find_mapped_user_id("ali", &prep_users(), &[]), Some("id_alice".to_string())); }
-    #[test] fn test_find_user_substring_short_no_match() { assert_eq!(find_mapped_user_id("al", &prep_users(), &[]), None); }
+    #[test] fn test_find_user_substring_disabled_by_default() {
+        let _g = FUZZY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::remove_var("STATESYNC_FUZZY_USER_MATCH"); }
+        assert_eq!(find_mapped_user_id("alice_smith", &prep_users(), &[]), None);
+        assert_eq!(find_mapped_user_id("ali", &prep_users(), &[]), None);
+    }
+    #[test] fn test_find_user_substring_when_enabled() {
+        let _g = FUZZY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("STATESYNC_FUZZY_USER_MATCH", "true"); }
+        assert_eq!(find_mapped_user_id("alice_smith", &prep_users(), &[]), Some("id_alice".to_string()));
+        assert_eq!(find_mapped_user_id("ali", &prep_users(), &[]), Some("id_alice".to_string()));
+        unsafe { std::env::remove_var("STATESYNC_FUZZY_USER_MATCH"); }
+    }
+    #[test] fn test_find_user_substring_short_no_match() {
+        let _g = FUZZY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("STATESYNC_FUZZY_USER_MATCH", "true"); }
+        assert_eq!(find_mapped_user_id("al", &prep_users(), &[]), None);
+        unsafe { std::env::remove_var("STATESYNC_FUZZY_USER_MATCH"); }
+    }
     #[test] fn test_find_user_not_found() { assert_eq!(find_mapped_user_id("dave", &prep_users(), &[]), None); }
     #[test] fn test_find_user_empty_mappings() { assert_eq!(find_mapped_user_id("alice", &prep_users(), &[]), Some("id_alice".to_string())); }
-    #[test] fn test_find_user_mapping_no_target() { assert_eq!(find_mapped_user_id("ali", &prep_users(), &[vec!["ali".to_string(), "dave".to_string()]]), Some("id_alice".to_string())); }
+    #[test] fn test_find_user_mapping_no_target() {
+        let _g = FUZZY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::remove_var("STATESYNC_FUZZY_USER_MATCH"); }
+        // Custom mapping target missing; without fuzzy, no match.
+        assert_eq!(find_mapped_user_id("ali", &prep_users(), &[vec!["ali".to_string(), "dave".to_string()]]), None);
+    }
     #[test] fn test_find_user_empty_username() { assert_eq!(find_mapped_user_id("", &prep_users(), &[]), None); }
     #[test] fn test_find_user_space_match() { assert_eq!(find_mapped_user_id("alice ", &prep_users(), &[]), Some("id_alice".to_string())); }
     #[test] fn test_find_user_colliding_substrings() {
+        let _g = FUZZY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("STATESYNC_FUZZY_USER_MATCH", "true"); }
         let mut map = HashMap::new();
         map.insert("alice_smith".to_string(), "id1".to_string());
         map.insert("alice_jones".to_string(), "id2".to_string());
         let res = find_mapped_user_id("alice", &map, &[]);
         assert!(res == Some("id1".to_string()) || res == Some("id2".to_string()));
+        unsafe { std::env::remove_var("STATESYNC_FUZZY_USER_MATCH"); }
     }
     #[test] fn test_find_user_closest_length() {
+        let _g = FUZZY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("STATESYNC_FUZZY_USER_MATCH", "true"); }
         let mut map = HashMap::new();
         map.insert("alice_smith".to_string(), "id1".to_string());
         map.insert("alice".to_string(), "id2".to_string());
         assert_eq!(find_mapped_user_id("alice_s", &map, &[]), Some("id2".to_string())); // "alice" is length diff 2, "alice_smith" is length diff 4
+        unsafe { std::env::remove_var("STATESYNC_FUZZY_USER_MATCH"); }
     }
     #[test] fn test_find_user_empty_map() { assert_eq!(find_mapped_user_id("alice", &HashMap::new(), &[]), None); }
     #[test] fn test_find_user_mapping_case_insensitive() { assert_eq!(find_mapped_user_id("ALI", &prep_users(), &[vec!["ali".to_string(), "Alice".to_string()]]), Some("id_alice".to_string())); }
