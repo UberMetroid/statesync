@@ -175,7 +175,8 @@ fn test_validate_server_url_no_host() {
     let mut cfg = default_config();
     cfg.servers.push(valid_server("test"));
     cfg.servers[0].url = "https:///".to_string();
-    assert!(validate_config(&cfg).is_ok());
+    // Empty authority after normalize → invalid
+    assert!(validate_config(&cfg).is_err());
 }
 
 #[test]

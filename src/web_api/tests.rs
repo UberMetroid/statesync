@@ -38,10 +38,11 @@ mod tests {
         assert!(valid_server_url("https://emby.example.com"));
         assert!(valid_server_url("192.168.1.50:8096")); // bare host:port OK
         assert!(!valid_server_url("ftp://localhost:8096"));
-        assert!(!valid_server_url("http://localhost/../etc"));
+        // Path is stripped to origin — becomes valid base URL
+        assert!(valid_server_url("http://localhost/web/index.html"));
         assert!(!valid_server_url(&format!("http://{}", "a".repeat(510))));
         assert!(validate_upstream_url("http://169.254.169.254/").is_err());
-        assert!(validate_upstream_url("http://192.168.1.10:8096").is_ok());
+        assert!(validate_upstream_url("http://10.0.0.10:8096").is_ok());
     }
 
     #[tokio::test]

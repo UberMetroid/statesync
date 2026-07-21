@@ -122,8 +122,10 @@ fn test_url_path() {
     let client_emby = MediaClient::new("http://localhost".to_string(), "k".to_string(), true);
     assert_eq!(client_emby.url_path("/Users"), "http://localhost/Users");
 
+    // Path after host is stripped; /emby is tried by get_users separately.
     let client_emby_preset = MediaClient::new("http://localhost/emby".to_string(), "k".to_string(), true);
-    assert_eq!(client_emby_preset.url_path("/Users"), "http://localhost/emby/Users");
+    assert_eq!(client_emby_preset.url, "http://localhost");
+    assert_eq!(client_emby_preset.url_path("/Users"), "http://localhost/Users");
 
     let client_jf = MediaClient::new("http://localhost".to_string(), "k".to_string(), false);
     assert_eq!(client_jf.url_path("/Users"), "http://localhost/Users");
