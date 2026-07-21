@@ -167,12 +167,15 @@ async function loadDashboard() {
           const cell = document.createElement('div');
           const filled = u.servers.includes(i);
           cell.className = 'user-cell' + (filled ? ' filled' : ' empty');
-          cell.textContent = filled ? u.name : '·';
-          cell.title = filled
-            ? (u.servers.length > 1
-                ? u.name + ' is mapped across servers.'
-                : u.name + ' only exists on ' + status.servers[i].name + '.')
-            : (status.servers[i] ? status.servers[i].name + ' has no user named ' + u.name : '');
+          if (filled) {
+            cell.textContent = u.name;
+            cell.title = u.servers.length > 1
+              ? u.name + ' is linked across servers'
+              : u.name + ' only on ' + status.servers[i].name + ' — use Link users';
+          } else {
+            cell.textContent = '·';
+            cell.title = 'No linked user on ' + status.servers[i].name;
+          }
           row.appendChild(cell);
         }
         grid.appendChild(row);
@@ -182,8 +185,16 @@ async function loadDashboard() {
       const singleCount = users.length - mappedCount;
       const legend = document.createElement('div');
       legend.className = 'form-hint';
-      legend.style.cssText = 'margin-top:12px;display:flex;gap:16px;flex-wrap:wrap';
-      legend.textContent = users.length + ' users · ' + mappedCount + ' mapped · ' + singleCount + ' single-server';
+      legend.style.cssText = 'margin-top:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:center';
+      legend.textContent = users.length + ' rows · ' + mappedCount + ' linked · ' + singleCount + ' need a link';
+      if (singleCount > 0) {
+        const tip = document.createElement('button');
+        tip.className = 'btn';
+        tip.style.marginLeft = 'auto';
+        tip.textContent = 'Link users';
+        tip.onclick = openMapUsersModal;
+        legend.appendChild(tip);
+      }
       usersDiv.appendChild(legend);
     }
 "#;

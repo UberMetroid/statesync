@@ -63,7 +63,10 @@ pub fn render_dashboard() -> Markup {
 
                     div class="row-grid" {
                         div class="card" {
-                            h2 { "Mapped users" }
+                            div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px" {
+                                h2 style="margin:0" { "Mapped users" }
+                                button class="btn" onclick="openMapUsersModal()" { "Link users" }
+                            }
                             div id="syncedUsers" {}
                             div id="forceSyncStatus" class="form-hint" style="margin-top:10px" {}
                         }
@@ -82,9 +85,12 @@ pub fn render_dashboard() -> Markup {
                     }
 
                     div class="card" {
-                        div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px" {
+                        div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap" {
                             h2 style="margin:0" { "Activity log" }
-                            button class="btn" id="toggleLogsBtn" onclick="toggleLogs()" { "Collapse" }
+                            div style="display:flex;gap:8px" {
+                                button class="btn" id="copyLogsBtn" onclick="copyActivityLog()" { "Copy log" }
+                                button class="btn" id="toggleLogsBtn" onclick="toggleLogs()" { "Collapse" }
+                            }
                         }
                         div class="log-feed" id="syncLogs" {}
                     }
@@ -146,15 +152,48 @@ pub fn render_dashboard() -> Markup {
                             p class="form-hint" { "Ignore near-duplicate progress updates within this window." }
                         }
                         div class="form-group" {
-                            label { "Username mappings" }
-                            textarea id="cfgUserMappings" rows="5" placeholder="alice, Alice, alice_jf&#10;bob, Robert" {};
-                            p class="form-hint" { "One group per line, comma-separated names that should match across servers." }
+                            label { "Username mappings (advanced text)" }
+                            textarea id="cfgUserMappings" rows="4" placeholder="alice, alice_jf&#10;bob, Robert" {};
+                            p class="form-hint" { "Or use Link users for a visual picker. One group per line, comma-separated names." }
                         }
                         div class="modal-actions" {
                             div {}
                             div class="right" {
                                 button type="button" class="btn" onclick="closeModal('settingsModal')" { "Cancel" }
                                 button type="button" class="btn btn-primary" onclick="saveSettings()" { "Save settings" }
+                            }
+                        }
+                    }
+                }
+
+                div class="modal" id="mapUsersModal" style="display:none" {
+                    div class="modal-content" style="max-width:560px" {
+                        h2 { "Link users" }
+                        p class="form-hint" style="margin-bottom:12px" {
+                            "Pick the same person on each server. Names do not need to match — this mapping tells StateSync who is who."
+                        }
+                        div class="form-group" {
+                            label id="mapServerALabel" { "User on server A" }
+                            select id="mapUserA" {}
+                        }
+                        div class="form-group" {
+                            label id="mapServerBLabel" { "User on server B" }
+                            select id="mapUserB" {}
+                        }
+                        div class="modal-actions" style="margin-bottom:16px" {
+                            div {}
+                            div class="right" {
+                                button type="button" class="btn btn-primary" onclick="addLinkedUserMapping()" { "Link these users" }
+                            }
+                        }
+                        div class="form-group" {
+                            label { "Current links" }
+                            div id="mapLinksList" class="map-links" {}
+                        }
+                        div class="modal-actions" {
+                            div {}
+                            div class="right" {
+                                button type="button" class="btn" onclick="closeModal('mapUsersModal')" { "Close" }
                             }
                         }
                     }

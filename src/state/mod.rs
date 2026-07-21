@@ -33,6 +33,9 @@ pub struct SyncLogEntry {
     pub level: String,
     /// Missing documentation.
     pub message: String,
+    /// Extra technical detail (IDs, errors) — shown in UI and included in copy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
     /// Missing documentation.
     pub source_name: Option<String>,
     /// Missing documentation.
@@ -65,7 +68,7 @@ fn default_log_retention() -> usize {
     std::env::var("STATESYNC_LOG_RETENTION")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(30)
+        .unwrap_or(100)
         .max(1)
 }
 
@@ -95,6 +98,11 @@ impl AppState {
 
     /// Missing documentation.
     pub fn log_event(&mut self, level: &str, msg: &str) {
+        self.log_event_detail(level, msg, None);
+    }
+
+    /// Log with optional technical detail line.
+    pub fn log_event_detail(&mut self, level: &str, msg: &str, detail: Option<String>) {
         let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
         self.sync_logs.insert(
             0,
@@ -102,6 +110,7 @@ impl AppState {
                 timestamp,
                 level: level.to_string(),
                 message: msg.to_string(),
+                detail,
                 source_name: None,
                 source_is_emby: None,
                 target_name: None,

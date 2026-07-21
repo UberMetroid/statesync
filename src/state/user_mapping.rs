@@ -14,10 +14,19 @@ pub fn fuzzy_user_match_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Collapse username for soft matching: letters+digits only, lowercased.
+/// So `John_Doe` and `johndoe` match without dangerous substring rules.
+fn alnum_key(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
 /// Resolve a target-server user id for `source_username`.
 ///
 /// Order: custom mapping groups → exact (case-insensitive) name match →
-/// optional fuzzy substring match (see [`fuzzy_user_match_enabled`]).
+/// alnum-normalized name match → optional fuzzy substring match.
 pub fn find_mapped_user_id(
     source_username: &str,
     target_users: &HashMap<String, String>,
@@ -36,6 +45,16 @@ pub fn find_mapped_user_id(
                     if let Some(id) = target_users.get(&mapped_lower) {
                         return Some(id.clone());
                     }
+                    // Also try alnum form of mapping entry vs target keys
+                    let mapped_alnum = alnum_key(mapped_name);
+                    if !mapped_alnum.is_empty() {
+                        if let Some((_, id)) = target_users
+                            .iter()
+                            .find(|(n, _)| alnum_key(n) == mapped_alnum)
+                        {
+                            return Some(id.clone());
+                        }
+                    }
                 }
             }
         }
@@ -43,6 +62,18 @@ pub fn find_mapped_user_id(
 
     if let Some(id) = target_users.get(&src_lower) {
         return Some(id.clone());
+    }
+
+    // Soft match: ignore spaces / underscores / dots / hyphens
+    let src_alnum = alnum_key(&src_lower);
+    if src_alnum.len() >= 3 {
+        let mut alnum_hits: Vec<(&String, &String)> = target_users
+            .iter()
+            .filter(|(n, _)| alnum_key(n) == src_alnum)
+            .collect();
+        if alnum_hits.len() == 1 {
+            return Some(alnum_hits.remove(0).1.clone());
+        }
     }
 
     if !fuzzy_user_match_enabled() {

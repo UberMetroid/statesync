@@ -143,7 +143,7 @@ mod tests {
             std::env::remove_var("STATESYNC_LOG_RETENTION");
         }
         let state_default = super::super::AppState::new(vec![]);
-        assert_eq!(state_default.log_retention, 30);
+        assert_eq!(state_default.log_retention, 100);
     }
 
     #[test]
@@ -172,6 +172,7 @@ mod tests {
             timestamp: "12:00".to_string(),
             level: "success".to_string(),
             message: "synced 1".to_string(),
+            detail: None,
             source_name: None,
             source_is_emby: None,
             target_name: None,
@@ -181,6 +182,7 @@ mod tests {
             timestamp: "12:01".to_string(),
             level: "success".to_string(),
             message: "synced 2".to_string(),
+            detail: None,
             source_name: None,
             source_is_emby: None,
             target_name: None,
@@ -195,6 +197,7 @@ mod tests {
             timestamp: "12:02".to_string(),
             level: "success".to_string(),
             message: "synced 3".to_string(),
+            detail: None,
             source_name: None,
             source_is_emby: None,
             target_name: None,

@@ -79,6 +79,7 @@ pub async fn get_status(
     let tracker_status = sync_force.status.lock().await.clone();
 
     let mut servers_status = Vec::new();
+    let mut users_by_server = Vec::new();
     for (i, (name, users, media_len)) in caches_data.iter().enumerate() {
         let ws_status = websocket_statuses
             .get(i)
@@ -90,6 +91,13 @@ pub async fn get_status(
             "users_count": users.len(),
             "media_count": media_len,
             "websocket_status": ws_status
+        }));
+        let mut names: Vec<String> = users.keys().cloned().collect();
+        names.sort();
+        users_by_server.push(json!({
+            "index": i,
+            "name": name,
+            "users": names,
         }));
     }
 
@@ -169,6 +177,8 @@ pub async fn get_status(
         "uptime_seconds": state.started_instant.elapsed().as_secs(),
         "servers": servers_status,
         "users": users,
+        "users_by_server": users_by_server,
+        "user_mappings": config.user_mappings,
         "active_sessions": sessions_json,
         "sync_logs": sync_logs,
         "last_full_sync": last_full_sync

@@ -130,11 +130,32 @@ body {
   padding: 10px 12px;
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  height: 180px;
+  height: 240px;
   overflow-y: auto;
   color: var(--text);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
-.log-line { margin-bottom: 4px; word-break: break-word; }
+.log-line { margin-bottom: 8px; word-break: break-word; white-space: pre-wrap; }
+.log-line .log-detail {
+  display: block;
+  margin-top: 2px;
+  margin-left: 0;
+  font-size: 11px;
+  color: var(--muted);
+  user-select: text;
+}
+.map-links { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+.map-link-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: rgba(0,0,0,0.25);
+  font-size: 12px; color: var(--bright);
+}
+select {
+  width: 100%; background: #070a0e; border: 1px solid var(--border);
+  color: var(--bright); padding: 9px 10px; border-radius: 6px; font-size: 13px;
+}
 .status-Connected, .status-Synchronizing { color: var(--green); font-weight: 600; font-size: 12px; }
 .status-Error { color: var(--red); font-weight: 600; font-size: 12px; }
 .status-Offline, .status-Reconnecting, .status-Validating, .status-Scanning, .status-Connecting {

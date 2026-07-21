@@ -95,9 +95,6 @@ pub async fn sync_progress_to_targets(
             continue;
         }
 
-        let target_user_id =
-            resolve_target_user(target_index, &user_lower, client_target, config, state_lock).await;
-
         let target_name = {
             let state = state_lock.lock().await;
             if target_index >= state.caches.len() {
@@ -105,6 +102,25 @@ pub async fn sync_progress_to_targets(
             }
             state.caches[target_index].name.clone()
         };
+
+        let target_user_id =
+            resolve_target_user(target_index, &user_lower, client_target, config, state_lock).await;
+
+        if target_user_id.is_none() {
+            let mut state = state_lock.lock().await;
+            state.log_event_detail(
+                "warn",
+                &format!(
+                    "No mapped user for '{}' on target '{}' — progress not synced",
+                    user_name, target_name
+                ),
+                Some(format!(
+                    "source_user={} source_server={} target_server={}. Open Settings → link users, or make usernames match.",
+                    user_name, source_name, target_name
+                )),
+            );
+            continue;
+        }
 
         let target_item_id = resolve_target_item(
             target_index,
@@ -116,6 +132,25 @@ pub async fn sync_progress_to_targets(
             state_lock,
         )
         .await;
+
+        if target_item_id.is_none() {
+            let mut state = state_lock.lock().await;
+            state.log_event_detail(
+                "warn",
+                &format!(
+                    "No matching library item on '{}' for '{}'",
+                    target_name, item_title
+                ),
+                Some(format!(
+                    "imdb={} tmdb={} source_item={} source_server={}",
+                    if imdb_id.is_empty() { "—" } else { &imdb_id },
+                    if tmdb_id.is_empty() { "—" } else { &tmdb_id },
+                    source_item_id,
+                    source_name
+                )),
+            );
+            continue;
+        }
 
         if let (Some(t_item_id), Some(t_user_id)) = (target_item_id, target_user_id) {
             let now = Instant::now();
@@ -168,6 +203,18 @@ pub async fn sync_progress_to_targets(
                 timestamp,
                 level: "success".to_string(),
                 message: message.clone(),
+                detail: Some(format!(
+                    "source={} → target={} | user={} | item_src={} item_tgt={} | imdb={} tmdb={} | ticks={} played={}",
+                    source_name,
+                    target_name,
+                    user_name,
+                    source_item_id,
+                    t_item_id,
+                    if imdb_id.is_empty() { "—" } else { &imdb_id },
+                    if tmdb_id.is_empty() { "—" } else { &tmdb_id },
+                    position,
+                    played
+                )),
                 source_name: Some(source_name.to_string()),
                 source_is_emby: Some(config.servers[source_index].is_emby),
                 target_name: Some(target_name.clone()),
@@ -215,9 +262,10 @@ pub async fn sync_progress_to_targets(
                     error!("Error updating target playstate: {}", e);
                     let mut state = state_lock_clone.lock().await;
                     state.last_syncs.remove(&history_key_clone);
-                    state.log_event(
+                    state.log_event_detail(
                         "error",
-                        &format!("Sync failed to '{}': {}", target_name_clone, e),
+                        &format!("Sync failed to '{}'", target_name_clone),
+                        Some(e.to_string()),
                     );
                 }
             });
