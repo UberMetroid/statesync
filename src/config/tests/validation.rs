@@ -198,3 +198,11 @@ fn test_validate_server_sync_direction_send_receive() {
     cfg.servers[0].sync_direction = "receive".to_string();
     assert!(validate_config(&cfg).is_ok());
 }
+
+#[test]
+fn test_validate_config_rejects_duplicate_server_names() {
+    let mut cfg = default_config();
+    cfg.servers.push(valid_server("Jellyfin"));
+    cfg.servers.push(valid_server("jellyfin"));
+    assert!(validate_config(&cfg).is_err());
+}

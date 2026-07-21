@@ -15,20 +15,37 @@ pub use loop_handler::handle_websocket_loop;
 mod tests;
 
 pub fn make_ws_url(url: &str, api_key: &str, is_emby: bool) -> String {
-    let base = url.trim_end_matches('/');
-    let ws_base = if base.starts_with("https://") {
-        base.replace("https://", "wss://")
-    } else if base.starts_with("http://") {
-        base.replace("http://", "ws://")
+    let clean_url = url.trim().trim_end_matches('/');
+    let lower_url = clean_url.to_lowercase();
+    let ws_base = if lower_url.starts_with("https://") {
+        format!("wss://{}", &clean_url[8..])
+    } else if lower_url.starts_with("http://") {
+        format!("ws://{}", &clean_url[7..])
     } else {
-        format!("ws://{}", base)
+        format!("ws://{}", clean_url)
     };
 
-    let encoded_key = utf8_percent_encode(api_key, NON_ALPHANUMERIC).to_string();
+    let ws_path = if is_emby {
+        if ws_base.ends_with("/embywebsocket") {
+            ""
+        } else if ws_base.ends_with("/emby") {
+            "websocket"
+        } else {
+            "/embywebsocket"
+        }
+    } else {
+        if ws_base.ends_with("/socket") {
+            ""
+        } else {
+            "/socket"
+        }
+    };
+
+    let encoded_key = utf8_percent_encode(api_key.trim(), NON_ALPHANUMERIC).to_string();
     format!(
         "{}{}?api_key={}&deviceId=statesync",
         ws_base,
-        if is_emby { "/embywebsocket" } else { "/socket" },
+        ws_path,
         encoded_key
     )
 }

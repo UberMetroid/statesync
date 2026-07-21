@@ -165,5 +165,7 @@ pub async fn get_server_info(
 }
 
 pub(super) fn valid_server_url(u: &str) -> bool {
-    (u.starts_with("http://") || u.starts_with("https://")) && u.len() <= 512 && !u.contains("..")
+    let trimmed = u.trim();
+    let lower = trimmed.to_lowercase();
+    (lower.starts_with("http://") || lower.starts_with("https://")) && trimmed.len() <= 512 && !trimmed.contains("..")
 }

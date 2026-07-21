@@ -101,7 +101,29 @@ async fn test_get_item_name() {
     let name = client.get_item_name("u1", "item1").await.unwrap();
     assert_eq!(name, "Good Movie");
     mock_ok.assert_async().await;
+}
 
+#[tokio::test]
+async fn test_get_item_providers_lowercase_keys() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let mut server = mockito::Server::new_async().await;
+    let mock_ok = server.mock("GET", "/Users/u1/Items/item1")
+        .with_status(200)
+        .with_body(r#"{"ProviderIds": {"imdb": "tt12345", "tmdb": "tm6789"}}"#)
+        .create_async().await;
+
+    let client = MediaClient::new(server.url(), "key".to_string(), false);
+    let (imdb, tmdb) = client.get_item_providers("u1", "item1").await.unwrap();
+    assert_eq!(imdb, "tt12345");
+    assert_eq!(tmdb, "tm6789");
+    mock_ok.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_get_item_name_missing() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let mut server = mockito::Server::new_async().await;
+    let client = MediaClient::new(server.url(), "key".to_string(), false);
     let mock_missing = server.mock("GET", "/Users/u1/Items/item1")
         .with_status(200)
         .with_body(r#"{}"#)

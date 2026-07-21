@@ -50,8 +50,12 @@ pub fn validate_config(cfg: &Config) -> Result<()> {
             cfg.servers.len()
         ));
     }
+    let mut names = std::collections::HashSet::new();
     for s in &cfg.servers {
         validate_server(s)?;
+        if !names.insert(s.name.to_lowercase()) {
+            return Err(anyhow!("duplicate server name '{}' in config", s.name));
+        }
     }
     if cfg.user_mappings.len() > MAX_MAPPING_GROUPS {
         return Err(anyhow!(

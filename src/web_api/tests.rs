@@ -154,4 +154,12 @@ mod tests {
         let msg = res.get("message").unwrap().as_str().unwrap();
         assert!(msg.contains("Connection failed"));
     }
+
+    #[test]
+    fn test_valid_server_url_whitespace_and_case() {
+        use super::super::server::valid_server_url;
+        assert!(valid_server_url("  HTTPS://Media-Server:8096/  "));
+        assert!(valid_server_url("http://192.168.1.10:8096"));
+        assert!(!valid_server_url("ftp://server"));
+    }
 }

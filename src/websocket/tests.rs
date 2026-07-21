@@ -21,6 +21,24 @@ mod tests {
     }
 
     #[test]
+    fn test_make_ws_url_deduplication() {
+        let ws_emby = make_ws_url("http://192.168.3.10:8096/emby", "k", true);
+        assert!(ws_emby.starts_with("ws://192.168.3.10:8096/embywebsocket?api_key="));
+
+        let ws_emby_ws = make_ws_url("http://192.168.3.10:8096/embywebsocket", "k", true);
+        assert!(ws_emby_ws.starts_with("ws://192.168.3.10:8096/embywebsocket?api_key="));
+
+        let ws_jf_socket = make_ws_url("http://192.168.3.10:8096/socket", "k", false);
+        assert!(ws_jf_socket.starts_with("ws://192.168.3.10:8096/socket?api_key="));
+    }
+
+    #[test]
+    fn test_make_ws_url_mixed_case() {
+        let wss_upper = make_ws_url("HTTPS://Media-Server:8096/", "key", false);
+        assert!(wss_upper.starts_with("wss://Media-Server:8096/socket?api_key="));
+    }
+
+    #[test]
     fn test_next_backoff() {
         let bo0 = next_backoff(0);
         assert!(bo0.as_millis() >= 1000 && bo0.as_millis() < 2000);

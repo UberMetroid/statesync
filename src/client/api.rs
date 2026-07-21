@@ -109,10 +109,10 @@ impl MediaClient {
                         let mut imdb = String::new();
                         let mut tmdb = String::new();
                         if let Some(providers) = item.get("ProviderIds") {
-                            if let Some(val) = providers.get("Imdb").and_then(|v| v.as_str()) {
+                            if let Some(val) = providers.get("Imdb").or_else(|| providers.get("imdb")).and_then(|v| v.as_str()) {
                                 imdb = val.to_string();
                             }
-                            if let Some(val) = providers.get("Tmdb").and_then(|v| v.as_str()) {
+                            if let Some(val) = providers.get("Tmdb").or_else(|| providers.get("tmdb")).and_then(|v| v.as_str()) {
                                 tmdb = val.to_string();
                             }
                         }
@@ -149,10 +149,10 @@ impl MediaClient {
         let mut imdb = String::new();
         let mut tmdb = String::new();
         if let Some(providers) = data.get("ProviderIds") {
-            if let Some(val) = providers.get("Imdb").and_then(|v| v.as_str()) {
+            if let Some(val) = providers.get("Imdb").or_else(|| providers.get("imdb")).and_then(|v| v.as_str()) {
                 imdb = val.to_string();
             }
-            if let Some(val) = providers.get("Tmdb").and_then(|v| v.as_str()) {
+            if let Some(val) = providers.get("Tmdb").or_else(|| providers.get("tmdb")).and_then(|v| v.as_str()) {
                 tmdb = val.to_string();
             }
         }
