@@ -73,44 +73,29 @@ fn origin_only(url: &str) -> String {
     format!("{}://{}", scheme, authority)
 }
 
-/// Derive a display name from a server URL (hostname preferred).
+/// Derive a display name from a server URL.
+///
+/// Includes the port when present so two services on the same host
+/// (`10.0.0.5:8096` vs `10.0.0.5:8920`) get distinct names without `-2` suffixes.
 pub fn name_from_url(url: &str) -> String {
     let u = normalize_server_url(url);
     let without_scheme = u
         .split_once("://")
         .map(|(_, rest)| rest)
         .unwrap_or(u.as_str());
+    // Full authority: host, host:port, or [ipv6]:port
     let host_port = without_scheme
         .split('/')
         .next()
         .unwrap_or(without_scheme)
         .split('?')
         .next()
-        .unwrap_or(without_scheme);
-    let host = if host_port.starts_with('[') {
-        host_port
-            .trim_start_matches('[')
-            .split(']')
-            .next()
-            .unwrap_or(host_port)
-            .to_string()
-    } else {
-        host_port
-            .rsplit_once(':')
-            .map(|(h, port)| {
-                // Keep host only when the suffix looks like a port.
-                if port.chars().all(|c| c.is_ascii_digit()) {
-                    h.to_string()
-                } else {
-                    host_port.to_string()
-                }
-            })
-            .unwrap_or_else(|| host_port.to_string())
-    };
-    let host = host.trim();
-    if host.is_empty() {
+        .unwrap_or(without_scheme)
+        .trim()
+        .trim_end_matches('/');
+    if host_port.is_empty() {
         "server".to_string()
     } else {
-        host.to_string()
+        host_port.to_string()
     }
 }

@@ -62,13 +62,20 @@ function normalizeServerUrl(url) {
     return m ? m[1].replace(/\/$/, '') : u.replace(/\/$/, '');
   }
 }
+/** Auto name = host:port so same-IP different-port servers stay distinct. */
 function nameFromUrl(url) {
   try {
     const u = normalizeServerUrl(url);
     if (!u) return 'server';
-    return new URL(u).hostname || 'server';
+    const parsed = new URL(u);
+    const host = parsed.hostname || '';
+    if (!host) return 'server';
+    // Include port when the URL has one (or when non-default is explicit in href).
+    if (parsed.port) return host + ':' + parsed.port;
+    return host;
   } catch (_) {
-    return (url || 'server').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0] || 'server';
+    const bare = (url || 'server').replace(/^https?:\/\//i, '').split('/')[0] || 'server';
+    return bare || 'server';
   }
 }
 async function loadDashboard() {

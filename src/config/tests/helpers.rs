@@ -64,5 +64,15 @@ fn test_normalize_server_url_strips_any_pasted_web_ui() {
         normalize_server_url("http://10.0.0.5:8096/emby"),
         "http://10.0.0.5:8096"
     );
-    assert_eq!(name_from_url("http://media.example.com:8096/web/"), "media.example.com");
+    // Auto names keep the port so same host / different ports stay unique.
+    assert_eq!(
+        name_from_url("http://media.example.com:8096/web/"),
+        "media.example.com:8096"
+    );
+    assert_eq!(name_from_url("http://10.0.0.5:8096"), "10.0.0.5:8096");
+    assert_eq!(name_from_url("http://10.0.0.5:8920"), "10.0.0.5:8920");
+    assert_eq!(name_from_url("10.0.0.5:8096"), "10.0.0.5:8096");
+    // No explicit port → host only
+    assert_eq!(name_from_url("http://emby.lan/web/"), "emby.lan");
+    assert_eq!(name_from_url("http://[fe80::1]:8096/"), "[fe80::1]:8096");
 }
