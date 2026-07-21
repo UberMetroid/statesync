@@ -162,4 +162,65 @@ mod tests {
         assert!(valid_server_url("http://192.168.1.10:8096"));
         assert!(!valid_server_url("ftp://server"));
     }
+
+    #[tokio::test]
+    async fn test_serve_poster_bad_request_rfc_9110() {
+        use axum::Extension;
+        use axum::extract::Query;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use crate::web::WebServerState;
+        use crate::state::AppState;
+        use tokio::sync::Mutex;
+        use super::super::server::serve_poster;
+
+        let app_state = Arc::new(Mutex::new(AppState::new(vec![])));
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let web_state = Arc::new(WebServerState {
+            app_state,
+            reload_tx: tx,
+            bind_addr: "127.0.0.1:0".to_string(),
+            web_auth: None,
+            version: "test".to_string(),
+            started_at: "2025-01-01".to_string(),
+            started_instant: std::time::Instant::now(),
+        });
+
+        let mut params = HashMap::new();
+        params.insert("server".to_string(), "bad name!".to_string());
+        params.insert("item_id".to_string(), "123".to_string());
+
+        let res = serve_poster(Extension(web_state.clone()), Query(params)).await;
+        assert_eq!(res.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_get_server_info_bad_request_rfc_9110() {
+        use axum::Extension;
+        use axum::extract::Query;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use crate::web::WebServerState;
+        use crate::state::AppState;
+        use tokio::sync::Mutex;
+        use super::super::server::get_server_info;
+
+        let app_state = Arc::new(Mutex::new(AppState::new(vec![])));
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let web_state = Arc::new(WebServerState {
+            app_state,
+            reload_tx: tx,
+            bind_addr: "127.0.0.1:0".to_string(),
+            web_auth: None,
+            version: "test".to_string(),
+            started_at: "2025-01-01".to_string(),
+            started_instant: std::time::Instant::now(),
+        });
+
+        let mut params = HashMap::new();
+        // Missing "url" parameter completely
+
+        let res = get_server_info(Extension(web_state), Query(params)).await;
+        assert_eq!(res.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
 }

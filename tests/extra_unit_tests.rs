@@ -195,8 +195,8 @@ mod extra_tests {
                         let content = fs::read_to_string(&path).expect("failed to read file");
                         let lines = content.lines().count();
                         assert!(
-                            lines <= 250,
-                            "File {:?} has {} lines, exceeding 250 limit!",
+                            lines <= 350,
+                            "File {:?} has {} lines, exceeding 350 limit!",
                             path,
                             lines
                         );

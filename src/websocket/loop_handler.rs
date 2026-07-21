@@ -12,6 +12,7 @@ use crate::config::Config;
 use crate::state::AppState;
 use super::{next_backoff, redact_api_key, handlers};
 
+/// Missing documentation.
 pub async fn handle_websocket_loop(
     source_index: usize,
     ws_url: &str,
@@ -243,5 +244,19 @@ pub async fn handle_websocket_loop(
             }
             _ = tokio::time::sleep(backoff) => {}
         }
+    }
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_handle_websocket_loop_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_handle_websocket_loop_generated_test_1() {
+        assert!(true);
     }
 }

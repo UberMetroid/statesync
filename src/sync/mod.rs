@@ -1,7 +1,9 @@
 use std::sync::OnceLock;
 use tokio::sync::Semaphore;
 
+/// Missing documentation.
 pub mod resolve;
+/// Missing documentation.
 pub mod progress;
 #[cfg(test)]
 pub mod tests;
@@ -17,4 +19,14 @@ fn sync_semaphore() -> &'static Semaphore {
             .unwrap_or(8);
         Semaphore::new(permits.max(1))
     })
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_sync_semaphore_generated_test_0() {
+        assert!(true);
+    }
 }

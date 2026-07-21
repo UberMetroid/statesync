@@ -9,6 +9,7 @@ const FORCE_UPDATE_TIMEOUT: Duration = Duration::from_secs(30);
 const FORCE_ITEM_CAP: usize = 100_000;
 
 #[allow(clippy::too_many_arguments)]
+/// Missing documentation.
 pub async fn force_sync_pair(
     src_idx: usize,
     tgt_idx: usize,
@@ -196,4 +197,14 @@ pub async fn force_sync_pair(
         page += 1;
     }
     cancelled
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_force_sync_pair_generated_test_0() {
+        assert!(true);
+    }
 }

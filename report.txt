@@ -1,0 +1,109 @@
+Found 104 functions and 238 tests.
+FILE: /home/jeryd/Projects/studio2201/statesync/src/main.rs
+  FUNCS: ['main', 'init_logging']
+  TESTS: ['test_main_generated_test_0', 'test_main_generated_test_1', 'test_init_logging_generated_test_0', 'test_init_logging_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/config/mod.rs
+  FUNCS: ['default_allow_insecure_http', 'default_sync_direction', 'default_threshold_seconds']
+  TESTS: ['test_default_allow_insecure_http_generated_test_0', 'test_default_allow_insecure_http_generated_test_1', 'test_default_sync_direction_generated_test_0', 'test_default_sync_direction_generated_test_1', 'test_default_threshold_seconds_generated_test_0', 'test_default_threshold_seconds_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/config/helpers.rs
+  FUNCS: ['redacted_url']
+  TESTS: []
+FILE: /home/jeryd/Projects/studio2201/statesync/src/config/validation.rs
+  FUNCS: ['validate_config', 'is_loopback_bind']
+  TESTS: []
+FILE: /home/jeryd/Projects/studio2201/statesync/src/config/loader.rs
+  FUNCS: ['save', 'load', 'get_config_path', 'default_config', 'write_default_config_to_disk', 'atomic_write', 'load_or_create_default']
+  TESTS: []
+FILE: /home/jeryd/Projects/studio2201/statesync/src/config/tests/validation.rs
+  FUNCS: ['valid_server']
+  TESTS: ['test_rejects_http_when_explicitly_disallowed', 'test_accepts_http_by_default', 'test_accepts_https_by_default', 'test_invalid_schemes_rejected', 'test_excessive_lengths_rejected', 'test_config_default_helpers', 'test_validate_server_name_empty', 'test_validate_server_sync_direction_invalid', 'test_validate_config_too_many_servers', 'test_validate_config_user_mappings_limits', 'test_validate_server_name_length_boundaries', 'test_validate_server_url_length_boundaries', 'test_validate_server_key_length_boundaries', 'test_validate_config_servers_boundaries', 'test_validate_config_user_mappings_boundaries', 'test_validate_config_group_members_boundaries', 'test_validate_config_member_len_boundaries', 'test_validate_server_sync_direction_uppercase', 'test_validate_server_url_no_host', 'test_validate_server_url_whitespace', 'test_validate_config_empty_servers', 'test_validate_server_sync_direction_send_receive', 'test_validate_config_rejects_duplicate_server_names']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/client/request.rs
+  FUNCS: ['retry_enabled', 'send_with_retry', 'url_path', 'add_auth_headers']
+  TESTS: ['test_retry_enabled_generated_test_0', 'test_url_path_generated_test_0', 'test_add_auth_headers_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/client/api.rs
+  FUNCS: ['get_public_server_info', 'get_users', 'get_library_items', 'get_item_providers', 'get_item_name']
+  TESTS: ['test_get_public_server_info_generated_test_0', 'test_get_users_generated_test_0', 'test_get_library_items_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/client/mod.rs
+  FUNCS: ['new']
+  TESTS: ['test_new_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/client/played.rs
+  FUNCS: ['find_item_by_provider', 'update_progress', 'get_user_played_items', 'get_user_played_items_count']
+  TESTS: ['test_find_item_by_provider_generated_test_0', 'test_update_progress_generated_test_0', 'test_get_user_played_items_count_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/state/cache.rs
+  FUNCS: ['merge_users', 'init_server_cache']
+  TESTS: []
+FILE: /home/jeryd/Projects/studio2201/statesync/src/state/user_mapping.rs
+  FUNCS: ['min_substring_len', 'find_mapped_user_id']
+  TESTS: ['test_min_substring_len_generated_test_0', 'test_min_substring_len_generated_test_1', 'test_find_mapped_user_id_generated_test_0', 'test_find_mapped_user_id_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/state/mod.rs
+  FUNCS: ['default_log_retention', 'new', 'log_event', 'log_sync']
+  TESTS: ['test_default_log_retention_generated_test_0', 'test_new_generated_test_0', 'test_log_event_generated_test_0', 'test_log_sync_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/websocket/loop_handler.rs
+  FUNCS: ['handle_websocket_loop']
+  TESTS: ['test_handle_websocket_loop_generated_test_0', 'test_handle_websocket_loop_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/websocket/mod.rs
+  FUNCS: ['make_ws_url', 'next_backoff', 'spawn_userdata_sync', 'redact_api_key']
+  TESTS: ['test_next_backoff_generated_test_0', 'test_spawn_userdata_sync_generated_test_0', 'test_spawn_userdata_sync_generated_test_1', 'test_redact_api_key_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/websocket/handlers.rs
+  FUNCS: ['init_cache_in_background', 'handle_sessions_event', 'handle_userdata_changed_event']
+  TESTS: ['test_init_cache_in_background_generated_test_0', 'test_handle_sessions_event_generated_test_0', 'test_handle_userdata_changed_event_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/sync/resolve.rs
+  FUNCS: ['resolve_item_providers', 'resolve_target_user', 'resolve_target_item']
+  TESTS: ['test_resolve_target_user_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/sync/progress.rs
+  FUNCS: ['sync_progress_to_targets']
+  TESTS: ['test_sync_progress_to_targets_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/sync/mod.rs
+  FUNCS: ['sync_semaphore']
+  TESTS: ['test_sync_semaphore_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/sync/tests/live_sync.rs
+  FUNCS: ['make_config', 'make_server_config', 'make_cache']
+  TESTS: ['threshold_skips_duplicate_update', 'force_sync_in_progress_blocks_live_sync', 'cache_miss_path_populates_provider_maps', 'unmapped_user_creates_solo_entry', 'user_data_entry_dto_parses_emby_payload', 'user_data_entry_dto_parses_jellyfin_payload', 'session_info_dto_parses_position_ticks', 'session_info_dto_handles_null_position', 'test_sync_semaphore']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/sync_force/sync_loop.rs
+  FUNCS: ['force_sync_pair']
+  TESTS: ['test_force_sync_pair_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/sync_force/runner.rs
+  FUNCS: ['run_force_sync', 'run_force_sync_inner']
+  TESTS: ['test_run_force_sync_generated_test_0', 'test_run_force_sync_generated_test_1', 'test_run_force_sync_inner_generated_test_0', 'test_run_force_sync_inner_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/sync_force/helpers.rs
+  FUNCS: ['direction_from_env', 'push_error', 'write_status', 'snapshot_status', 'cancel_backfill']
+  TESTS: ['test_direction_from_env_generated_test_0', 'test_push_error_generated_test_0', 'test_push_error_generated_test_1', 'test_write_status_generated_test_0', 'test_snapshot_status_generated_test_0', 'test_cancel_backfill_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/sync_force/mod.rs
+  FUNCS: ['snapshot_status', 'cancel_backfill', 'idle', 'default', 'default']
+  TESTS: ['test_snapshot_status_generated_test_0', 'test_cancel_backfill_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/web_api/validation.rs
+  FUNCS: ['valid_item_id', 'valid_server_name']
+  TESTS: ['test_valid_item_id_generated_test_0', 'test_valid_server_name_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/web_api/status.rs
+  FUNCS: ['cache_stats', 'get_status']
+  TESTS: ['test_cache_stats_generated_test_0', 'test_get_status_generated_test_0', 'test_get_status_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/web_api/config.rs
+  FUNCS: ['get_config', 'post_config']
+  TESTS: ['test_get_config_generated_test_0', 'test_get_config_generated_test_1', 'test_post_config_generated_test_0', 'test_post_config_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/web_api/sync.rs
+  FUNCS: ['post_reload', 'post_users_refresh', 'post_sync_force', 'get_sync_force_status', 'post_sync_force_cancel']
+  TESTS: ['test_post_users_refresh_generated_test_0', 'test_post_users_refresh_generated_test_1', 'test_post_sync_force_generated_test_0', 'test_post_sync_force_generated_test_1', 'test_get_sync_force_status_generated_test_0', 'test_get_sync_force_status_generated_test_1', 'test_post_sync_force_cancel_generated_test_0', 'test_post_sync_force_cancel_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/web_api/server.rs
+  FUNCS: ['test_connection', 'serve_poster', 'get_server_info']
+  TESTS: ['test_serve_poster_generated_test_0', 'test_get_server_info_generated_test_0', 'test_get_server_info_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/cli/tui.rs
+  FUNCS: ['run_tui']
+  TESTS: ['test_run_tui_generated_test_0', 'test_run_tui_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/cli/dry_run.rs
+  FUNCS: ['trigger_reload', 'validate_config', 'dry_run']
+  TESTS: ['test_trigger_reload_generated_test_0', 'test_dry_run_generated_test_0', 'test_dry_run_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/cli/force_sync.rs
+  FUNCS: ['run_sync_force_cli']
+  TESTS: ['test_run_sync_force_cli_generated_test_0', 'test_run_sync_force_cli_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/cli/helpers.rs
+  FUNCS: ['init_clients_parallel', 'print_help', 'resolve_bind_addr', 'resolve_web_auth', 'install_shutdown_handler']
+  TESTS: ['test_init_clients_parallel_generated_test_0', 'test_print_help_generated_test_0', 'test_resolve_bind_addr_generated_test_0', 'test_resolve_web_auth_generated_test_0', 'test_install_shutdown_handler_generated_test_0', 'test_install_shutdown_handler_generated_test_1']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/web/handlers.rs
+  FUNCS: ['serve_index', 'serve_manifest', 'serve_icon', 'serve_favicon', 'serve_sw', 'serve_healthz']
+  TESTS: ['test_serve_index_generated_test_0', 'test_serve_index_generated_test_1', 'test_serve_manifest_generated_test_0', 'test_serve_icon_generated_test_0', 'test_serve_favicon_generated_test_0', 'test_serve_sw_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/web/mod.rs
+  FUNCS: ['create_router', 'security_headers', 'auth_middleware', 'extract_bearer', 'constant_time_eq']
+  TESTS: ['test_create_router_generated_test_0', 'test_create_router_generated_test_1', 'test_security_headers_generated_test_0', 'test_security_headers_generated_test_1', 'test_auth_middleware_generated_test_0', 'test_auth_middleware_generated_test_1', 'test_extract_bearer_generated_test_0', 'test_constant_time_eq_generated_test_0']
+FILE: /home/jeryd/Projects/studio2201/statesync/src/dashboard/mod.rs
+  FUNCS: ['render_full_js', 'render_dashboard']
+  TESTS: ['test_render_dashboard_contains_title', 'test_render_dashboard_contains_headings', 'test_render_full_js_generated_test_0', 'test_render_full_js_generated_test_1']

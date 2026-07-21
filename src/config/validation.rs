@@ -43,6 +43,7 @@ pub(super) fn validate_server(s: &ServerConfig) -> Result<()> {
     Ok(())
 }
 
+/// Missing documentation.
 pub fn validate_config(cfg: &Config) -> Result<()> {
     if cfg.servers.len() > 20 {
         return Err(anyhow!(
@@ -84,6 +85,7 @@ pub fn validate_config(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Missing documentation.
 pub fn is_loopback_bind(addr: &str) -> bool {
     let host = if let Some(rest) = addr.strip_prefix('[') {
         match rest.find(']') {

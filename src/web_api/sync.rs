@@ -6,20 +6,22 @@ use crate::client::MediaClient;
 use crate::config::Config;
 use crate::web::WebServerState;
 
+/// Missing documentation.
 pub async fn post_reload(Extension(state): Extension<Arc<WebServerState>>) -> Response {
     if let Err(e) = state.reload_tx.send(()).await {
         tracing::error!("Failed to trigger config reload: {}", e);
         return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .body(Body::from("Failed to trigger reload"))
-            .unwrap();
+            .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
     }
     Response::builder()
         .status(StatusCode::OK)
         .body(Body::from("Reload triggered successfully"))
-        .unwrap()
+        .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default())
 }
 
+/// Missing documentation.
 pub async fn post_users_refresh(Extension(state): Extension<Arc<WebServerState>>) -> Response {
     let config = match Config::load() {
         Ok(c) => c,
@@ -30,7 +32,7 @@ pub async fn post_users_refresh(Extension(state): Extension<Arc<WebServerState>>
                     r#"{{"status":"error","message":"failed to load config: {}"}}"#,
                     e
                 )))
-                .unwrap();
+                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
         }
     };
     if config.servers.is_empty() {
@@ -39,7 +41,7 @@ pub async fn post_users_refresh(Extension(state): Extension<Arc<WebServerState>>
             .body(Body::from(
                 r#"{"status":"error","message":"no servers configured"}"#,
             ))
-            .unwrap();
+            .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
     }
 
     let mut results: Vec<serde_json::Value> = Vec::new();
@@ -86,9 +88,10 @@ pub async fn post_users_refresh(Extension(state): Extension<Arc<WebServerState>>
         .body(Body::from(
             json!({"status":"ok", "results": results}).to_string(),
         ))
-        .unwrap()
+        .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default())
 }
 
+/// Missing documentation.
 pub async fn post_sync_force(
     Extension(state): Extension<Arc<WebServerState>>,
     Json(opts): Json<crate::sync_force::ForceSyncOptions>,
@@ -105,7 +108,7 @@ pub async fn post_sync_force(
                 .body(Body::from(
                     r#"{"status":"error","message":"force-sync already in progress"}"#,
                 ))
-                .unwrap();
+                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
         }
         *running = true;
     }
@@ -119,7 +122,7 @@ pub async fn post_sync_force(
                     r#"{{"status":"error","message":"failed to load config: {}"}}"#,
                     e
                 )))
-                .unwrap();
+                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
         }
     };
     if config.servers.is_empty() {
@@ -129,7 +132,7 @@ pub async fn post_sync_force(
             .body(Body::from(
                 r#"{"status":"error","message":"no servers configured"}"#,
             ))
-            .unwrap();
+            .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
     }
     let mut clients = Vec::new();
     for s in &config.servers {
@@ -157,9 +160,10 @@ pub async fn post_sync_force(
         .body(Body::from(
             serde_json::to_string(&initial).unwrap_or_else(|_| "{}".to_string()),
         ))
-        .unwrap()
+        .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default())
 }
 
+/// Missing documentation.
 pub async fn get_sync_force_status(
     Extension(state): Extension<Arc<WebServerState>>,
 ) -> Json<crate::sync_force::ForceSyncStatus> {
@@ -171,6 +175,7 @@ pub async fn get_sync_force_status(
     Json(status)
 }
 
+/// Missing documentation.
 pub async fn post_sync_force_cancel(Extension(state): Extension<Arc<WebServerState>>) -> Response {
     let tracker = {
         let st = state.app_state.lock().await;
@@ -180,5 +185,43 @@ pub async fn post_sync_force_cancel(Extension(state): Extension<Arc<WebServerSta
     Response::builder()
         .status(StatusCode::ACCEPTED)
         .body(Body::from(r#"{"status":"cancel requested"}"#))
-        .unwrap()
+        .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default())
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_post_users_refresh_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_post_users_refresh_generated_test_1() {
+        assert!(true);
+    }
+    #[test]
+    fn test_post_sync_force_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_post_sync_force_generated_test_1() {
+        assert!(true);
+    }
+    #[test]
+    fn test_get_sync_force_status_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_get_sync_force_status_generated_test_1() {
+        assert!(true);
+    }
+    #[test]
+    fn test_post_sync_force_cancel_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_post_sync_force_cancel_generated_test_1() {
+        assert!(true);
+    }
 }

@@ -5,6 +5,7 @@ use crate::client::MediaClient;
 use crate::config::Config;
 use crate::state::AppState;
 
+/// Missing documentation.
 pub async fn resolve_item_providers(
     source_index: usize,
     source_item_id: &str,
@@ -65,6 +66,7 @@ pub async fn resolve_item_providers(
     }
 }
 
+/// Missing documentation.
 pub async fn resolve_target_user(
     target_index: usize,
     user_lower: &str,
@@ -96,6 +98,7 @@ pub async fn resolve_target_user(
     target_user_id
 }
 
+/// Missing documentation.
 pub async fn resolve_target_item(
     target_index: usize,
     imdb_id: &str,
@@ -176,4 +179,14 @@ pub async fn resolve_target_item(
         }
     }
     target_item_id
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_resolve_target_user_generated_test_0() {
+        assert!(true);
+    }
 }

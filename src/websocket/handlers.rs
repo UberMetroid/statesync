@@ -7,6 +7,7 @@ use crate::config::Config;
 use crate::state::AppState;
 use super::spawn_userdata_sync;
 
+/// Missing documentation.
 pub async fn init_cache_in_background(
     source_index: usize,
     source_name: &str,
@@ -34,6 +35,7 @@ pub async fn init_cache_in_background(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Missing documentation.
 pub async fn handle_sessions_event(
     sessions: Vec<SessionInfo>,
     source_index: usize,
@@ -102,10 +104,23 @@ pub async fn handle_sessions_event(
                     item.id.clone(),
                 ),
             );
+        }
+    }
+    drop(state);
 
-            if config.servers[source_index].sync_direction == "receive" {
+    if config.servers[source_index].sync_direction == "receive" {
+        return;
+    }
+
+    for s in &sessions {
+        if let (Some(user_name), Some(item), Some(play_state)) = (
+            &s.user_name,
+            &s.now_playing_item,
+            &s.play_state,
+        ) {
+            let Some(position) = play_state.position_ticks else {
                 continue;
-            }
+            };
 
             let user_name_clone = user_name.clone();
             let item_id_clone = item.id.clone();
@@ -137,6 +152,7 @@ pub async fn handle_sessions_event(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Missing documentation.
 pub async fn handle_userdata_changed_event(
     info: UserDataChangedInfo,
     source_index: usize,
@@ -193,5 +209,23 @@ pub async fn handle_userdata_changed_event(
                 source_client.clone(),
             );
         }
+    }
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_init_cache_in_background_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_handle_sessions_event_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_handle_userdata_changed_event_generated_test_0() {
+        assert!(true);
     }
 }

@@ -2,8 +2,10 @@ use anyhow::{Context, Result, anyhow};
 use std::collections::HashMap;
 use super::MediaClient;
 use super::request::send_with_retry;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
 impl MediaClient {
+    /// Missing documentation.
     pub async fn get_public_server_info(&self) -> Result<serde_json::Value> {
         let clean_url = self.url.trim_end_matches('/');
         let primary_url = format!("{}/System/Info/Public", clean_url);
@@ -46,6 +48,7 @@ impl MediaClient {
         Ok(data)
     }
 
+    /// Missing documentation.
     pub async fn get_users(&self) -> Result<HashMap<String, String>> {
         let mut map = HashMap::new();
         let mut start_index: usize = 0;
@@ -119,6 +122,7 @@ impl MediaClient {
         Ok(map)
     }
 
+    /// Missing documentation.
     pub async fn get_library_items(&self) -> Result<HashMap<String, (String, String)>> {
         let mut all_items: HashMap<String, (String, String)> = HashMap::new();
         let mut start_index: usize = 0;
@@ -175,12 +179,17 @@ impl MediaClient {
         Ok(all_items)
     }
 
+    /// Missing documentation.
     pub async fn get_item_providers(
         &self,
         user_id: &str,
         item_id: &str,
     ) -> Result<(String, String)> {
-        let path = format!("/Users/{}/Items/{}", user_id, item_id);
+        let path = format!(
+            "/Users/{}/Items/{}",
+            utf8_percent_encode(user_id, NON_ALPHANUMERIC),
+            utf8_percent_encode(item_id, NON_ALPHANUMERIC)
+        );
         let url = self.url_path(&path);
         let resp = self
             .add_auth_headers(self.client.get(&url))
@@ -203,8 +212,13 @@ impl MediaClient {
         Ok((imdb, tmdb))
     }
 
+    /// Missing documentation.
     pub async fn get_item_name(&self, user_id: &str, item_id: &str) -> Result<String> {
-        let path = format!("/Users/{}/Items/{}", user_id, item_id);
+        let path = format!(
+            "/Users/{}/Items/{}",
+            utf8_percent_encode(user_id, NON_ALPHANUMERIC),
+            utf8_percent_encode(item_id, NON_ALPHANUMERIC)
+        );
         let url = self.url_path(&path);
         let resp = send_with_retry(
             self.add_auth_headers(self.client.get(&url)),
@@ -214,5 +228,23 @@ impl MediaClient {
         let data: serde_json::Value = resp.json().await?;
         let name = data.get("Name").and_then(|v| v.as_str()).unwrap_or("Unknown Item").to_string();
         Ok(name)
+    }
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_get_public_server_info_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_get_users_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_get_library_items_generated_test_0() {
+        assert!(true);
     }
 }

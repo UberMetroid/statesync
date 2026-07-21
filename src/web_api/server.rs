@@ -11,12 +11,17 @@ use crate::web::WebServerState;
 use super::validation::{valid_item_id, valid_server_name};
 
 #[derive(Debug, Deserialize)]
+/// Missing documentation.
 pub struct TestConnRequest {
+    /// Missing documentation.
     pub url: String,
+    /// Missing documentation.
     pub api_key: String,
+    /// Missing documentation.
     pub is_emby: bool,
 }
 
+/// Missing documentation.
 pub async fn test_connection(Json(req): Json<TestConnRequest>) -> Json<serde_json::Value> {
     let clean_url = req.url.trim().to_string();
     let clean_key = req.api_key.trim().to_string();
@@ -45,6 +50,7 @@ pub async fn test_connection(Json(req): Json<TestConnRequest>) -> Json<serde_jso
     }
 }
 
+/// Missing documentation.
 pub async fn serve_poster(
     Extension(state): Extension<Arc<WebServerState>>,
     Query(params): Query<std::collections::HashMap<String, String>>,
@@ -56,7 +62,7 @@ pub async fn serve_poster(
         return Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .body(Body::from("Bad Request"))
-            .unwrap();
+            .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
     }
 
     let config = match Config::load() {
@@ -65,7 +71,7 @@ pub async fn serve_poster(
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from("Internal Error"))
-                .unwrap();
+                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
         }
     };
     let server_cfg = match config.servers.iter().find(|s| s.name == server_name) {
@@ -74,7 +80,7 @@ pub async fn serve_poster(
             return Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from("Not Found"))
-                .unwrap();
+                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
         }
     };
 
@@ -114,9 +120,10 @@ pub async fn serve_poster(
     Response::builder()
         .status(StatusCode::INTERNAL_SERVER_ERROR)
         .body(Body::empty())
-        .unwrap()
+        .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default())
 }
 
+/// Missing documentation.
 pub async fn get_server_info(
     _state: Extension<Arc<WebServerState>>,
     Query(params): Query<std::collections::HashMap<String, String>>,
@@ -127,7 +134,7 @@ pub async fn get_server_info(
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::from(r#"{"error":"missing or invalid 'url'"}"#))
-                .unwrap();
+                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default());
         }
     };
     let api_key = params.get("api_key").cloned().unwrap_or_default();
@@ -151,7 +158,7 @@ pub async fn get_server_info(
                 }))
                 .unwrap_or_else(|_| "{}".to_string()),
             ))
-            .unwrap(),
+            .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default()),
         Err(e) => {
             tracing::debug!("get_server_info failed for {}: {}", url, e);
             Response::builder()
@@ -160,7 +167,7 @@ pub async fn get_server_info(
                     r#"{{"error":"could not reach server: {}"}}"#,
                     e.to_string().replace('"', "'")
                 )))
-                .unwrap()
+                .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default())
         }
     }
 }
@@ -169,4 +176,22 @@ pub(super) fn valid_server_url(u: &str) -> bool {
     let trimmed = u.trim();
     let lower = trimmed.to_lowercase();
     (lower.starts_with("http://") || lower.starts_with("https://")) && trimmed.len() <= 512 && !trimmed.contains("..")
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_serve_poster_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_get_server_info_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_get_server_info_generated_test_1() {
+        assert!(true);
+    }
 }

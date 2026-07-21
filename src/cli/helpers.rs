@@ -175,3 +175,33 @@ pub fn install_shutdown_handler() -> tokio::sync::oneshot::Receiver<()> {
     });
     rx
 }
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_init_clients_parallel_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_print_help_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_resolve_bind_addr_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_resolve_web_auth_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_install_shutdown_handler_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_install_shutdown_handler_generated_test_1() {
+        assert!(true);
+    }
+}

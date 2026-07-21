@@ -52,7 +52,15 @@ async fn test_serve_sw() {
 
 #[tokio::test]
 async fn test_serve_healthz_unhealthy() {
-    let app_state = Arc::new(Mutex::new(AppState::new(vec![])));
+    let cache = crate::state::ServerCache {
+        name: "test".to_string(),
+        users: std::collections::HashMap::new(),
+        imdb_to_id: std::collections::HashMap::new(),
+        tmdb_to_id: std::collections::HashMap::new(),
+        id_to_providers: std::collections::HashMap::new(),
+    };
+    let app_state = Arc::new(Mutex::new(AppState::new(vec![cache])));
+    // Leave websocket_statuses empty or "Error" so it is disconnected
     let web_state = Arc::new(WebServerState {
         app_state,
         reload_tx: mpsc::channel(1).0,

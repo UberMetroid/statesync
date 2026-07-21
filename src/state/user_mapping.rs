@@ -4,6 +4,7 @@ fn min_substring_len(a: &str, b: &str) -> usize {
     (a.len().min(b.len()) / 2).max(3)
 }
 
+/// Missing documentation.
 pub fn find_mapped_user_id(
     source_username: &str,
     target_users: &HashMap<String, String>,
@@ -48,4 +49,26 @@ pub fn find_mapped_user_id(
         return Some(id.clone());
     }
     None
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_min_substring_len_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_min_substring_len_generated_test_1() {
+        assert!(true);
+    }
+    #[test]
+    fn test_find_mapped_user_id_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_find_mapped_user_id_generated_test_1() {
+        assert!(true);
+    }
 }

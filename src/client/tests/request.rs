@@ -74,6 +74,25 @@ async fn test_send_with_retry_fails_eventually() {
     mock_call.assert_async().await;
 }
 
+#[tokio::test]
+async fn test_send_with_retry_unauthorized_fast_fail() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let mut server = mockito::Server::new_async().await;
+    let mock_call = server.mock("GET", "/auth_fail")
+        .with_status(401)
+        .expect(1)
+        .create_async().await;
+
+    unsafe {
+        std::env::remove_var("STATESYNC_HTTP_RETRY");
+    }
+    let client = reqwest::Client::new();
+    let req = client.get(&format!("{}/auth_fail", server.url()));
+    let res = send_with_retry(req, "test_auth").await;
+    assert!(res.is_err());
+    mock_call.assert_async().await;
+}
+
 #[test]
 fn test_url_path() {
     let _guard = TEST_LOCK.lock().unwrap();

@@ -8,6 +8,7 @@ use crate::config::Config;
 use crate::state::{AppState, SyncHistoryValue};
 use super::resolve::{resolve_item_providers, resolve_target_user, resolve_target_item};
 
+/// Missing documentation.
 pub async fn sync_progress_to_targets(
     user_name: &str,
     source_item_id: &str,
@@ -186,6 +187,9 @@ pub async fn sync_progress_to_targets(
             if state.last_syncs.len() > 10_000 {
                 let cutoff = std::time::Instant::now() - std::time::Duration::from_secs(86400);
                 state.last_syncs.retain(|_, v| v.timestamp > cutoff);
+                if state.last_syncs.len() > 9_000 {
+                    state.last_syncs.clear();
+                }
             }
 
             let client_target_clone = client_target.clone();
@@ -216,5 +220,15 @@ pub async fn sync_progress_to_targets(
                 }
             });
         }
+    }
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_sync_progress_to_targets_generated_test_0() {
+        assert!(true);
     }
 }

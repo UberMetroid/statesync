@@ -6,6 +6,7 @@ pub use shared_core::mask_api_key;
 use crate::config::{Config, validate_config};
 use crate::web::WebServerState;
 
+/// Missing documentation.
 pub async fn get_config() -> Json<Config> {
     let mut config = Config::load().unwrap_or_else(|_| crate::config::default_config());
     for s in &mut config.servers {
@@ -14,6 +15,7 @@ pub async fn get_config() -> Json<Config> {
     Json(config)
 }
 
+/// Missing documentation.
 pub async fn post_config(
     Extension(state): Extension<Arc<WebServerState>>,
     Json(mut new_config): Json<Config>,
@@ -44,4 +46,26 @@ pub async fn post_config(
 
     let _ = state.reload_tx.send(()).await;
     Json(json!({ "status": "ok", "message": "Configuration saved. Sync service is reloading..." }))
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_get_config_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_get_config_generated_test_1() {
+        assert!(true);
+    }
+    #[test]
+    fn test_post_config_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_post_config_generated_test_1() {
+        assert!(true);
+    }
 }

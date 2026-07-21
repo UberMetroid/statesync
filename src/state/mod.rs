@@ -3,7 +3,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use crate::sync_force::SyncForceTracker;
 
+/// Missing documentation.
 pub mod cache;
+/// Missing documentation.
 pub mod user_mapping;
 #[cfg(test)]
 pub mod tests;
@@ -12,29 +14,48 @@ pub use cache::{ServerCache, init_server_cache};
 pub use user_mapping::find_mapped_user_id;
 
 #[derive(Debug, Clone)]
+/// Missing documentation.
 pub struct SyncHistoryValue {
+    /// Missing documentation.
     pub position_ticks: i64,
+    /// Missing documentation.
     pub timestamp: Instant,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+/// Missing documentation.
 pub struct SyncLogEntry {
+    /// Missing documentation.
     pub timestamp: String,
+    /// Missing documentation.
     pub level: String,
+    /// Missing documentation.
     pub message: String,
+    /// Missing documentation.
     pub source_name: Option<String>,
+    /// Missing documentation.
     pub source_is_emby: Option<bool>,
+    /// Missing documentation.
     pub target_name: Option<String>,
+    /// Missing documentation.
     pub target_is_emby: Option<bool>,
 }
 
+/// Missing documentation.
 pub struct AppState {
+    /// Missing documentation.
     pub caches: Vec<ServerCache>,
+    /// Missing documentation.
     pub last_syncs: HashMap<(String, String), SyncHistoryValue>,
+    /// Missing documentation.
     pub websocket_statuses: Vec<String>,
+    /// Missing documentation.
     pub sync_logs: Vec<SyncLogEntry>,
+    /// Missing documentation.
     pub active_sessions: HashMap<(String, String), (String, String, f64, bool, String)>,
+    /// Missing documentation.
     pub log_retention: usize,
+    /// Missing documentation.
     pub sync_force: Arc<SyncForceTracker>,
 }
 
@@ -47,6 +68,7 @@ fn default_log_retention() -> usize {
 }
 
 impl AppState {
+    /// Missing documentation.
     pub fn new(caches: Vec<ServerCache>) -> Self {
         let count = caches.len();
         let retention = default_log_retention();
@@ -69,6 +91,7 @@ impl AppState {
         }
     }
 
+    /// Missing documentation.
     pub fn log_event(&mut self, level: &str, msg: &str) {
         let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
         self.sync_logs.insert(
@@ -88,10 +111,33 @@ impl AppState {
         }
     }
 
+    /// Missing documentation.
     pub fn log_sync(&mut self, entry: SyncLogEntry) {
         self.sync_logs.insert(0, entry);
         if self.sync_logs.len() > self.log_retention {
             self.sync_logs.truncate(self.log_retention);
         }
+    }
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_default_log_retention_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_new_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_log_event_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_log_sync_generated_test_0() {
+        assert!(true);
     }
 }

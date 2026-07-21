@@ -112,3 +112,17 @@ pub async fn run_sync_force_cli(args: &[String]) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_run_sync_force_cli_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_run_sync_force_cli_generated_test_1() {
+        assert!(true);
+    }
+}

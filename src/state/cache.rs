@@ -3,11 +3,17 @@ use anyhow::Result;
 use crate::client::MediaClient;
 
 #[derive(Debug, Clone)]
+/// Missing documentation.
 pub struct ServerCache {
+    /// Missing documentation.
     pub name: String,
+    /// Missing documentation.
     pub users: HashMap<String, String>, // username (lowercase) -> UserId
+    /// Missing documentation.
     pub imdb_to_id: HashMap<String, String>, // ImdbId -> ItemId
+    /// Missing documentation.
     pub tmdb_to_id: HashMap<String, String>, // TmdbId -> ItemId
+    /// Missing documentation.
     pub id_to_providers: HashMap<String, (String, String)>, // ItemId -> (ImdbId, TmdbId)
 }
 
@@ -22,6 +28,7 @@ impl ServerCache {
     }
 }
 
+/// Missing documentation.
 pub async fn init_server_cache(name: &str, client: &MediaClient) -> Result<ServerCache> {
     let users = client.get_users().await?;
     let items = client.get_library_items().await?;

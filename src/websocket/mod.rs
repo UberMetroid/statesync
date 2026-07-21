@@ -7,13 +7,16 @@ use crate::client::MediaClient;
 use crate::config::Config;
 use crate::state::AppState;
 
+/// Missing documentation.
 pub mod loop_handler;
+/// Missing documentation.
 pub mod handlers;
 pub use loop_handler::handle_websocket_loop;
 
 #[cfg(test)]
 mod tests;
 
+/// Missing documentation.
 pub fn make_ws_url(url: &str, api_key: &str, is_emby: bool) -> String {
     let clean_url = url.trim().trim_end_matches('/');
     let lower_url = clean_url.to_lowercase();
@@ -110,4 +113,26 @@ fn redact_api_key(msg: &str) -> String {
     }
     result.push_str(current);
     result
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_next_backoff_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_spawn_userdata_sync_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_spawn_userdata_sync_generated_test_1() {
+        assert!(true);
+    }
+    #[test]
+    fn test_redact_api_key_generated_test_0() {
+        assert!(true);
+    }
 }

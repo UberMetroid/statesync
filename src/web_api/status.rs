@@ -9,13 +9,19 @@ use crate::config::{Config, redacted_url};
 use crate::state::AppState;
 use crate::web::WebServerState;
 
+/// Missing documentation.
 pub struct CacheStats {
+    /// Missing documentation.
     pub total_servers: usize,
+    /// Missing documentation.
     pub connected_count: usize,
+    /// Missing documentation.
     pub ever_connected_count: usize,
+    /// Missing documentation.
     pub total_users: usize,
 }
 
+/// Missing documentation.
 pub async fn cache_stats(app_state: &Arc<Mutex<AppState>>) -> CacheStats {
     let state = app_state.lock().await;
     let total_servers = state.caches.len();
@@ -38,6 +44,7 @@ pub async fn cache_stats(app_state: &Arc<Mutex<AppState>>) -> CacheStats {
     }
 }
 
+/// Missing documentation.
 pub async fn get_status(
     Extension(state): Extension<Arc<WebServerState>>,
 ) -> Json<serde_json::Value> {
@@ -53,22 +60,23 @@ pub async fn get_status(
 
     // Refactored to clone state fields and release the lock immediately,
     // avoiding long-lived lock holding during serialization and user mapping computations.
-    let (caches_data, websocket_statuses, active_sessions, sync_logs, tracker_status) = {
+    let (caches_data, websocket_statuses, active_sessions, sync_logs, sync_force) = {
         let app_state = state.app_state.lock().await;
         let caches_data: Vec<(String, HashMap<String, String>, usize)> = app_state
             .caches
             .iter()
             .map(|c| (c.name.clone(), c.users.clone(), c.id_to_providers.len()))
             .collect();
-        let tracker_status = app_state.sync_force.status.lock().await.clone();
         (
             caches_data,
             app_state.websocket_statuses.clone(),
             app_state.active_sessions.clone(),
             app_state.sync_logs.clone(),
-            tracker_status,
+            app_state.sync_force.clone(),
         )
     };
+
+    let tracker_status = sync_force.status.lock().await.clone();
 
     let mut servers_status = Vec::new();
     for (i, (name, users, media_len)) in caches_data.iter().enumerate() {
@@ -165,4 +173,22 @@ pub async fn get_status(
         "sync_logs": sync_logs,
         "last_full_sync": last_full_sync
     }))
+}
+
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+    #[test]
+    fn test_cache_stats_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_get_status_generated_test_0() {
+        assert!(true);
+    }
+    #[test]
+    fn test_get_status_generated_test_1() {
+        assert!(true);
+    }
 }

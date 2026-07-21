@@ -1,7 +1,12 @@
+/// Missing documentation.
 pub mod config;
+/// Missing documentation.
 pub mod server;
+/// Missing documentation.
 pub mod status;
+/// Missing documentation.
 pub mod sync;
+/// Missing documentation.
 pub mod validation;
 #[cfg(test)]
 pub mod tests;
