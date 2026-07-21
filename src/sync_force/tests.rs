@@ -4,6 +4,19 @@ mod tests {
     use crate::sync_force::runner::rate_from_env;
 
     #[test]
+    fn force_direction_accepts_lowercase_both() {
+        // UI historically sent "both"; that caused HTTP 422 before aliases.
+        let opts: crate::sync_force::ForceSyncOptions =
+            serde_json::from_str(r#"{"direction":"both"}"#).unwrap();
+        assert_eq!(opts.direction, crate::sync_force::Direction::Both);
+        let opts2: crate::sync_force::ForceSyncOptions =
+            serde_json::from_str(r#"{"direction":"Both"}"#).unwrap();
+        assert_eq!(opts2.direction, crate::sync_force::Direction::Both);
+        let opts3: crate::sync_force::ForceSyncOptions = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(opts3.direction, crate::sync_force::Direction::Both);
+    }
+
+    #[test]
     fn idle_status_is_clean() {
         let status = ForceSyncStatus::idle();
         assert_eq!(status.state, ForceSyncState::Idle);

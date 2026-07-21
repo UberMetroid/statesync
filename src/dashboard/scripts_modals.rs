@@ -7,11 +7,11 @@ pub const JS_MODALS: &str = r#"function openServerModal(idx) {
   if (isAdd) {
     $('serverForm').reset();
     $('serverName').value = '';
-    pickType('jellyfin');
+    setDetectedType(null);
     pickDirection('both');
   } else {
     const srv = currentConfig.servers[idx];
-    pickType(srv.is_emby ? 'emby' : 'jellyfin');
+    setDetectedType(!!srv.is_emby, false);
     $('serverName').value = srv.name || '';
     $('serverUrl').value = srv.url;
     $('serverKey').value = srv.api_key;
@@ -35,10 +35,25 @@ pub const JS_MODALS: &str = r#"function openServerModal(idx) {
     });
   }
 }
+/** isEmby: true/false/null. confirmed=true after Test connection or save detect. */
+function setDetectedType(isEmby, confirmed) {
+  const hint = $('serverTypeHint');
+  if (isEmby === null || isEmby === undefined) {
+    $('serverType').value = '';
+    if (hint) hint.textContent = 'Emby vs Jellyfin is detected automatically when you test or save.';
+    return;
+  }
+  $('serverType').value = isEmby ? 'emby' : 'jellyfin';
+  if (hint) {
+    hint.textContent = confirmed
+      ? ('Detected: ' + (isEmby ? 'Emby' : 'Jellyfin'))
+      : ('Saved as ' + (isEmby ? 'Emby' : 'Jellyfin') + ' (re-detected on test/save)');
+    hint.style.color = 'var(--green)';
+  }
+}
 function pickType(t) {
-  $('serverType').value = t;
-  $('btnJellyfin').classList.toggle('active', t === 'jellyfin');
-  $('btnEmby').classList.toggle('active', t === 'emby');
+  // Kept for any leftover callers; type is auto-detected.
+  setDetectedType(t === 'emby', false);
 }
 function pickDirection(d) {
   $('serverDirection').value = d;
@@ -184,24 +199,36 @@ async function removeUserMapping(idx) {
   renderMapLinksList();
   setTimeout(loadDashboard, 600);
 }
+/** Detect Emby vs Jellyfin via test_connection (tries both). Returns {ok, is_emby, url, message}. */
+async function detectServerType(url, api_key, preferEmby) {
+  const res = await authedFetch('/api/test_connection', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url,
+      api_key,
+      // Hint only — server tries both orderings.
+      is_emby: !!preferEmby
+    })
+  });
+  const d = await res.json().catch(() => ({}));
+  return {
+    ok: d.status === 'ok',
+    is_emby: !!d.is_emby,
+    url: d.url || url,
+    message: d.message || (res.ok ? 'Connected' : 'Connection failed')
+  };
+}
 function testConnection() {
   let url = normalizeServerUrl($('serverUrl').value);
   $('serverUrl').value = url;
   const api_key = $('serverKey').value.trim();
-  let type = $('serverType').value;
   if (!url || !api_key) return showToast('Enter a server address and API key first');
   showToast('Testing connection…');
-  authedFetch('/api/test_connection', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, api_key, is_emby: type === 'emby' })
-  })
-    .then(async r => {
-      const d = await r.json();
-      if (d.status === 'ok') {
-        if (typeof d.is_emby === 'boolean') {
-          pickType(d.is_emby ? 'emby' : 'jellyfin');
-        }
+  detectServerType(url, api_key, false)
+    .then(d => {
+      if (d.ok) {
+        setDetectedType(d.is_emby, true);
         if (d.url) $('serverUrl').value = d.url;
         showToast(d.message || 'Connected');
       } else {
@@ -216,6 +243,21 @@ $('serverForm').addEventListener('submit', async (e) => {
   $('serverUrl').value = url;
   const api_key = $('serverKey').value.trim();
   if (!url || !api_key) return showToast('Enter a server address and API key first');
+  showToast('Detecting server type…');
+  let is_emby = $('serverType').value === 'emby';
+  try {
+    const det = await detectServerType(url, api_key, is_emby);
+    if (!det.ok) {
+      showToast(det.message || 'Could not reach server — fix address/API key before saving');
+      return;
+    }
+    is_emby = det.is_emby;
+    if (det.url) { url = det.url; $('serverUrl').value = url; }
+    setDetectedType(is_emby, true);
+  } catch (err) {
+    showToast('Could not detect server type: ' + (err.message || 'unreachable'));
+    return;
+  }
   // Name is optional — backend fills from hostname if empty
   let name = ($('serverName').value || '').trim();
   if (!name) name = nameFromUrl(url);
@@ -223,7 +265,7 @@ $('serverForm').addEventListener('submit', async (e) => {
     name,
     url,
     api_key,
-    is_emby: $('serverType').value === 'emby',
+    is_emby,
     sync_direction: $('serverDirection').value || 'both',
     allow_insecure_http: true
   };
@@ -404,11 +446,18 @@ async function forceSync() {
     const res = await authedFetch('/api/sync/force', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ direction: 'both' })
+      // PascalCase matches serde default; lowercase "both" also accepted server-side.
+      body: JSON.stringify({ direction: 'Both' })
     });
     if (!res.ok && res.status !== 202) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.message || ('HTTP ' + res.status));
+      let msg = 'HTTP ' + res.status;
+      try {
+        const body = await res.json();
+        if (body.message) msg = body.message;
+      } catch (_) {
+        try { msg = (await res.text()) || msg; } catch (__) {}
+      }
+      throw new Error(msg);
     }
     pollForceSync();
     loadDashboard();

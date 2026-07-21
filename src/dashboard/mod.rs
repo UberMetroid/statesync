@@ -161,21 +161,15 @@ pub fn render_dashboard() -> Markup {
                     div class="modal-content" {
                         h2 id="modalTitle" { "Add server" }
                         form id="serverForm" {
-                            input type="hidden" id="serverType" value="jellyfin";
+                            input type="hidden" id="serverType" value="";
                             input type="hidden" id="serverDirection" value="both";
                             input type="hidden" id="serverName" value="";
 
                             div class="form-group" {
-                                label { "Type" }
-                                div class="btn-group" {
-                                    button type="button" class="btn-radio active" id="btnJellyfin" onclick="pickType('jellyfin')" { "Jellyfin" }
-                                    button type="button" class="btn-radio" id="btnEmby" onclick="pickType('emby')" { "Emby" }
-                                }
-                            }
-                            div class="form-group" {
                                 label { "Server address" }
                                 input type="text" id="serverUrl" placeholder="http://emby-or-jellyfin:8096" required {};
                                 p class="form-hint" { "Any form works — full browser link, or just host:port. We strip paths automatically." }
+                                p class="form-hint" id="serverTypeHint" { "Emby vs Jellyfin is detected automatically when you test or save." }
                             }
                             div class="form-group" {
                                 label { "API key" }

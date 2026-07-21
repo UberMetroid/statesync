@@ -79,11 +79,20 @@ pub async fn test_connection(Json(req): Json<TestConnRequest>) -> (StatusCode, J
             })),
         );
     }
-    // Try both type guesses so a wrong Emby/Jellyfin toggle still succeeds.
-    let attempts = if req.is_emby {
-        [true, false]
-    } else {
-        [false, true]
+    // Prefer ProductName from public info; fall back to trying both types.
+    let mut detected_emby: Option<bool> = None;
+    {
+        let probe = MediaClient::new(clean_url.clone(), clean_key.clone(), req.is_emby);
+        if let Ok(info) = probe.get_public_server_info().await {
+            if let Some(b) = info.get("is_emby").and_then(|v| v.as_bool()) {
+                detected_emby = Some(b);
+            }
+        }
+    }
+    let attempts: Vec<bool> = match detected_emby {
+        Some(b) => vec![b, !b],
+        None if req.is_emby => vec![true, false],
+        None => vec![false, true],
     };
     let mut last_err = String::new();
     for is_emby in attempts {
@@ -91,18 +100,25 @@ pub async fn test_connection(Json(req): Json<TestConnRequest>) -> (StatusCode, J
         match client.get_users().await {
             Ok(users) => {
                 let kind = if is_emby { "Emby" } else { "Jellyfin" };
+                let via = if detected_emby == Some(is_emby) {
+                    "detected"
+                } else {
+                    "connected"
+                };
                 return (
                     StatusCode::OK,
                     Json(json!({
                         "status": "ok",
                         "message": format!(
-                            "Connected to {} at {} ({} users).",
+                            "{} {} at {} ({} users).",
+                            if via == "detected" { "Detected" } else { "Connected to" },
                             kind,
                             clean_url,
                             users.len()
                         ),
                         "is_emby": is_emby,
                         "url": clean_url,
+                        "detected": detected_emby.is_some(),
                     })),
                 );
             }

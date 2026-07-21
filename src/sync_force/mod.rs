@@ -27,21 +27,35 @@ pub async fn cancel_backfill(tracker: &SyncForceTracker) {
     tracker.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
+fn default_force_direction() -> Direction {
+    Direction::Both
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 /// Missing documentation.
 pub struct ForceSyncOptions {
-    /// Missing documentation.
+    /// Accepts `both` / `Both` / omitted (defaults to both).
+    #[serde(default = "default_force_direction")]
     pub direction: Direction,
 }
 
+/// Force-sync mesh direction. UI sends lowercase `both`; serde accepts both casings.
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq)]
-/// Missing documentation.
+#[serde(rename_all = "PascalCase")]
 pub enum Direction {
-    /// Missing documentation.
+    #[serde(alias = "both", alias = "BOTH")]
     Both,
-    /// Missing documentation.
+    #[serde(
+        alias = "emby_to_jellyfin",
+        alias = "embytojellyfin",
+        alias = "EmbyToJellyfin"
+    )]
     EmbyToJellyfin,
-    /// Missing documentation.
+    #[serde(
+        alias = "jellyfin_to_emby",
+        alias = "jellyfintoemby",
+        alias = "JellyfinToEmby"
+    )]
     JellyfinToEmby,
 }
 

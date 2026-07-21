@@ -91,11 +91,36 @@ pub async fn post_users_refresh(Extension(state): Extension<Arc<WebServerState>>
         .unwrap_or_else(|_| axum::response::Response::builder().status(500).body(axum::body::Body::from("Internal Server Error")).unwrap_or_default())
 }
 
-/// Missing documentation.
+/// Start a force sync. Body is optional; `{ "direction": "both" }` or empty → both ways.
 pub async fn post_sync_force(
     Extension(state): Extension<Arc<WebServerState>>,
-    Json(opts): Json<crate::sync_force::ForceSyncOptions>,
+    body: Result<Json<crate::sync_force::ForceSyncOptions>, axum::extract::rejection::JsonRejection>,
 ) -> Response {
+    let opts = match body {
+        Ok(Json(o)) => o,
+        Err(rej) => {
+            // Empty body is fine; real parse errors get a clear message (was opaque 422).
+            let msg = rej.to_string();
+            if msg.contains("EOF") || msg.contains("empty") || msg.contains("EOF while parsing") {
+                crate::sync_force::ForceSyncOptions {
+                    direction: crate::sync_force::Direction::Both,
+                }
+            } else {
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from(format!(
+                        r#"{{"status":"error","message":"Invalid force-sync body: {}"}}"#,
+                        msg.replace('"', "'")
+                    )))
+                    .unwrap_or_else(|_| {
+                        axum::response::Response::builder()
+                            .status(500)
+                            .body(axum::body::Body::from("Internal Server Error"))
+                            .unwrap_or_default()
+                    });
+            }
+        }
+    };
     let tracker = {
         let st = state.app_state.lock().await;
         st.sync_force.clone()
