@@ -36,22 +36,33 @@ fn test_is_loopback_bind_edge_cases() {
 }
 
 #[test]
-fn test_normalize_server_url_strips_web_ui_path() {
+fn test_normalize_server_url_strips_any_pasted_web_ui() {
+    // Full Emby/Jellyfin browser address (path + hash) → origin only
     assert_eq!(
-        normalize_server_url("http://192.168.3.3:8096/web/index.html#!/apikeys"),
-        "http://192.168.3.3:8096"
+        normalize_server_url("http://10.0.0.5:8096/web/index.html#!/apikeys"),
+        "http://10.0.0.5:8096"
     );
     assert_eq!(
-        normalize_server_url("https://emby.example.com:8920/web/index.html#/dashboard"),
-        "https://emby.example.com:8920"
+        normalize_server_url("https://media.example.com:8920/web/index.html#/dashboard"),
+        "https://media.example.com:8920"
     );
     assert_eq!(
-        normalize_server_url("192.168.1.50:8096"),
-        "http://192.168.1.50:8096"
+        normalize_server_url("http://emby.lan:8096/web/index.html?foo=1#/home"),
+        "http://emby.lan:8096"
+    );
+    // Bare host:port
+    assert_eq!(
+        normalize_server_url("10.0.0.5:8096"),
+        "http://10.0.0.5:8096"
+    );
+    // Trailing slash / path only
+    assert_eq!(
+        normalize_server_url("http://10.0.0.5:8096/"),
+        "http://10.0.0.5:8096"
     );
     assert_eq!(
-        normalize_server_url("http://192.168.1.50:8096/"),
-        "http://192.168.1.50:8096"
+        normalize_server_url("http://10.0.0.5:8096/emby"),
+        "http://10.0.0.5:8096"
     );
-    assert_eq!(name_from_url("http://192.168.3.3:8096/web/"), "192.168.3.3");
+    assert_eq!(name_from_url("http://media.example.com:8096/web/"), "media.example.com");
 }

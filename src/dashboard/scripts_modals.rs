@@ -19,6 +19,21 @@ pub const JS_MODALS: &str = r#"function openServerModal(idx) {
   }
   $('serverModal').style.display = 'flex';
   setTimeout(() => { try { $('serverUrl').focus(); } catch(_){} }, 50);
+  // Normalize whenever the user leaves the field or pastes a browser URL.
+  const urlInput = $('serverUrl');
+  if (urlInput && !urlInput._ssBound) {
+    urlInput._ssBound = true;
+    urlInput.addEventListener('blur', () => {
+      const n = normalizeServerUrl(urlInput.value);
+      if (n) urlInput.value = n;
+    });
+    urlInput.addEventListener('paste', () => {
+      setTimeout(() => {
+        const n = normalizeServerUrl(urlInput.value);
+        if (n) urlInput.value = n;
+      }, 0);
+    });
+  }
 }
 function pickType(t) {
   $('serverType').value = t;

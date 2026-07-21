@@ -111,8 +111,8 @@ pub fn render_dashboard() -> Markup {
                             }
                             div class="form-group" {
                                 label { "Server address" }
-                                input type="text" id="serverUrl" placeholder="http://192.168.1.50:8096" required {};
-                                p class="form-hint" { "IP or hostname + port. You can paste a full browser URL — we keep only host:port." }
+                                input type="text" id="serverUrl" placeholder="http://emby-or-jellyfin:8096" required {};
+                                p class="form-hint" { "Any form works — full browser link, or just host:port. We strip paths automatically." }
                             }
                             div class="form-group" {
                                 label { "API key" }

@@ -74,8 +74,7 @@ impl MediaClient {
                     format!(
                         "Failed to get users list from {} (page {}). \
                          If StateSync runs in Docker bridge mode, use a LAN IP \
-                         (e.g. http://192.168.1.10:8096), not a local hostname \
-                         that only Unraid can resolve. Also check API key and type.",
+                         or resolvable hostname (not localhost). Also check API key and type.",
                         self.url, page
                     )
                 })?;

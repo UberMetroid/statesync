@@ -39,7 +39,8 @@ pub fn accept_invalid_certs_enabled() -> bool {
 impl MediaClient {
     /// Missing documentation.
     pub fn new(url: String, api_key: String, is_emby: bool) -> Self {
-        let clean_url = url.trim().trim_end_matches('/').to_string();
+        // Always reduce pasted browser URLs to scheme://host:port.
+        let clean_url = crate::config::normalize_server_url(&url);
         let clean_api_key = api_key.trim().to_string();
         let accept_invalid = accept_invalid_certs_enabled();
         if accept_invalid {

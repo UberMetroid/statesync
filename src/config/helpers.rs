@@ -11,14 +11,11 @@ pub fn redacted_url(url: &str) -> String {
     trimmed.to_string()
 }
 
-/// Normalize a media-server base URL.
+/// Normalize any user-pasted media-server address to `scheme://host[:port]`.
 ///
-/// - Bare hosts like `192.168.1.50:8096` become `http://192.168.1.50:8096`
-/// - Pasted web UI paths are stripped, e.g.
-///   `http://192.168.3.3:8096/web/index.html#!/apikeys`
-///   → `http://192.168.3.3:8096`
-/// - Query strings and `#fragments` are removed
-/// - Other schemes (`ftp`, `ws`, …) are left alone (validation rejects them)
+/// Accepts whatever people copy from a browser (web UI paths, `#!/…` fragments,
+/// query strings, trailing slashes) or type bare (`host:8096`). Always returns
+/// only the API base origin — never keeps `/web/index.html` or similar.
 pub fn normalize_server_url(url: &str) -> String {
     let t = url.trim();
     if t.is_empty() {

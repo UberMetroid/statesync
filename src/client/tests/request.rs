@@ -17,11 +17,16 @@ fn test_client_new() {
     assert_eq!(client_jf.url, "https://127.0.0.1:8096");
     assert!(!client_jf.is_emby);
 
-    let client_spaces = MediaClient::new("  http://192.168.1.100:8096/  ".to_string(), "key".to_string(), false);
-    assert_eq!(client_spaces.url, "http://192.168.1.100:8096");
+    let client_spaces = MediaClient::new("  http://10.0.0.100:8096/  ".to_string(), "key".to_string(), false);
+    assert_eq!(client_spaces.url, "http://10.0.0.100:8096");
 
-    let client_query = MediaClient::new("http://example.com:8096/?foo=bar".to_string(), "key".to_string(), true);
-    assert_eq!(client_query.url, "http://example.com:8096/?foo=bar");
+    // Query, path, and hash from a pasted browser URL are stripped to origin.
+    let client_query = MediaClient::new(
+        "http://example.com:8096/web/index.html?foo=bar#!/apikeys".to_string(),
+        "key".to_string(),
+        true,
+    );
+    assert_eq!(client_query.url, "http://example.com:8096");
 }
 
 #[test]
