@@ -1,4 +1,4 @@
-use crate::config::helpers::redacted_url;
+use crate::config::helpers::{name_from_url, normalize_server_url, redacted_url};
 use crate::config::validation::is_loopback_bind;
 
 #[test]
@@ -33,4 +33,25 @@ fn test_is_loopback_bind_edge_cases() {
     assert!(is_loopback_bind("localhost"));
     assert!(!is_loopback_bind("127.0.0.2:80"));
     assert!(is_loopback_bind("[::1]"));
+}
+
+#[test]
+fn test_normalize_server_url_strips_web_ui_path() {
+    assert_eq!(
+        normalize_server_url("http://192.168.3.3:8096/web/index.html#!/apikeys"),
+        "http://192.168.3.3:8096"
+    );
+    assert_eq!(
+        normalize_server_url("https://emby.example.com:8920/web/index.html#/dashboard"),
+        "https://emby.example.com:8920"
+    );
+    assert_eq!(
+        normalize_server_url("192.168.1.50:8096"),
+        "http://192.168.1.50:8096"
+    );
+    assert_eq!(
+        normalize_server_url("http://192.168.1.50:8096/"),
+        "http://192.168.1.50:8096"
+    );
+    assert_eq!(name_from_url("http://192.168.3.3:8096/web/"), "192.168.3.3");
 }

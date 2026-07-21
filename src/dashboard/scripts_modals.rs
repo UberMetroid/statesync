@@ -34,7 +34,8 @@ function pickDirection(d) {
 function openSettingsModal() { $('settingsModal').style.display = 'flex'; }
 function closeModal(id) { $(id).style.display = 'none'; }
 function testConnection() {
-  let url = $('serverUrl').value.trim();
+  let url = normalizeServerUrl($('serverUrl').value);
+  $('serverUrl').value = url;
   const api_key = $('serverKey').value.trim();
   let type = $('serverType').value;
   if (!url || !api_key) return showToast('Enter a server address and API key first');
@@ -60,7 +61,8 @@ function testConnection() {
 }
 $('serverForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  let url = $('serverUrl').value.trim();
+  let url = normalizeServerUrl($('serverUrl').value);
+  $('serverUrl').value = url;
   const api_key = $('serverKey').value.trim();
   if (!url || !api_key) return showToast('Enter a server address and API key first');
   // Name is optional — backend fills from hostname if empty

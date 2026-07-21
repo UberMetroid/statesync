@@ -11,26 +11,69 @@ pub fn redacted_url(url: &str) -> String {
     trimmed.to_string()
 }
 
-/// Ensure a media-server URL has a scheme and no trailing slash.
-/// Bare hosts like `192.168.1.50:8096` become `http://192.168.1.50:8096`.
-/// Existing schemes (`http`, `https`, `ftp`, `ws`, …) are left alone.
+/// Normalize a media-server base URL.
+///
+/// - Bare hosts like `192.168.1.50:8096` become `http://192.168.1.50:8096`
+/// - Pasted web UI paths are stripped, e.g.
+///   `http://192.168.3.3:8096/web/index.html#!/apikeys`
+///   → `http://192.168.3.3:8096`
+/// - Query strings and `#fragments` are removed
+/// - Other schemes (`ftp`, `ws`, …) are left alone (validation rejects them)
 pub fn normalize_server_url(url: &str) -> String {
-    let t = url.trim().trim_end_matches('/');
+    let t = url.trim();
     if t.is_empty() {
         return String::new();
     }
+
+    // Drop fragment first (#/web/... or #!/apikeys).
+    let t = t.split('#').next().unwrap_or(t).trim();
+    // Drop query string.
+    let t = t.split('?').next().unwrap_or(t).trim();
+    if t.is_empty() {
+        return String::new();
+    }
+
     let lower = t.to_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") {
-        return t.to_string();
+        return origin_only(t);
     }
     // Already has some other scheme (ftp, ws, …) — do not rewrite.
     if let Some(idx) = t.find("://") {
         if idx > 0 && t[..idx].chars().all(|c| c.is_ascii_alphabetic()) {
-            return t.to_string();
+            return t.trim_end_matches('/').to_string();
         }
     }
     // Bare host / host:port / IP — default to http for LAN media servers.
-    format!("http://{}", t)
+    origin_only(&format!("http://{}", t))
+}
+
+/// Keep only `scheme://host[:port]` (strip path after the authority).
+fn origin_only(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.trim_end_matches('/').to_string();
+    };
+    // rest may be host:port/path or [ipv6]:port/path
+    let authority = if rest.starts_with('[') {
+        // IPv6: [fe80::1]:8096/path
+        match rest.find(']') {
+            Some(end) => {
+                let after = &rest[end + 1..];
+                if let Some(slash) = after.find('/') {
+                    format!("{}{}", &rest[..=end], &after[..slash])
+                } else {
+                    rest.to_string()
+                }
+            }
+            None => rest.split('/').next().unwrap_or(rest).to_string(),
+        }
+    } else {
+        rest.split('/').next().unwrap_or(rest).to_string()
+    };
+    let authority = authority.trim().trim_end_matches('/');
+    if authority.is_empty() {
+        return String::new();
+    }
+    format!("{}://{}", scheme, authority)
 }
 
 /// Derive a display name from a server URL (hostname preferred).

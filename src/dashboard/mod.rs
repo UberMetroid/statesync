@@ -111,8 +111,8 @@ pub fn render_dashboard() -> Markup {
                             }
                             div class="form-group" {
                                 label { "Server address" }
-                                input type="text" id="serverUrl" placeholder="http://192.168.1.50:8096 or 192.168.1.50:8096" required {};
-                                p class="form-hint" { "Any reachable IP or hostname. Scheme is optional (defaults to http)." }
+                                input type="text" id="serverUrl" placeholder="http://192.168.1.50:8096" required {};
+                                p class="form-hint" { "IP or hostname + port. You can paste a full browser URL — we keep only host:port." }
                             }
                             div class="form-group" {
                                 label { "API key" }

@@ -19,13 +19,27 @@ async function loadPoster(url, img) {
     img.src = obj;
   } catch (_) {}
 }
+/** Keep only scheme://host:port — strip /web/…, #!, query strings. */
+function normalizeServerUrl(url) {
+  let u = (url || '').trim();
+  if (!u) return '';
+  u = u.split('#')[0].split('?')[0].trim();
+  if (!/^https?:\/\//i.test(u)) u = 'http://' + u;
+  try {
+    const parsed = new URL(u);
+    const port = parsed.port ? (':' + parsed.port) : '';
+    return parsed.protocol + '//' + parsed.hostname + port;
+  } catch (_) {
+    // Fallback: scheme://host[:port] before any path
+    const m = u.match(/^(https?:\/\/[^\/]+)/i);
+    return m ? m[1].replace(/\/$/, '') : u.replace(/\/$/, '');
+  }
+}
 function nameFromUrl(url) {
   try {
-    let u = (url || '').trim();
+    const u = normalizeServerUrl(url);
     if (!u) return 'server';
-    if (!/^https?:\/\//i.test(u)) u = 'http://' + u;
-    const h = new URL(u).hostname;
-    return h || 'server';
+    return new URL(u).hostname || 'server';
   } catch (_) {
     return (url || 'server').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0] || 'server';
   }
