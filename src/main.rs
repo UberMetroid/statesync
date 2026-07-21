@@ -23,6 +23,10 @@ use cli::{resolve_bind_addr, resolve_web_auth, install_shutdown_handler};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Main entry point for the StateSync application.
+///
+/// Parses command line arguments, loads configuration, initializes application state,
+/// spawns the web dashboard server, and connects WebSocket synchronization loops to all configured media servers.
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -229,6 +233,7 @@ async fn main() -> Result<()> {
     }
 }
 
+/// Initializes the global tracing logging framework with EnvFilter.
 fn init_logging() {
     use tracing_subscriber::{EnvFilter, fmt};
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));

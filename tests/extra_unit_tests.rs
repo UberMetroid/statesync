@@ -215,4 +215,29 @@ mod extra_tests {
         assert!(Path::new("src/main.rs").exists(), "src/main.rs must exist");
         assert!(Path::new("tests/integration_tests.rs").exists(), "tests/integration_tests.rs must exist");
     }
+
+    #[test]
+    fn test_only_rust_code_in_src() {
+        use std::fs;
+        use std::path::Path;
+
+        fn check_src_dir(dir: &Path) {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        check_src_dir(&path);
+                    } else {
+                        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                        assert!(
+                            ext == "rs" || ext == "jpg" || ext == "png",
+                            "Non-Rust code file found in src/: {:?}",
+                            path
+                        );
+                    }
+                }
+            }
+        }
+        check_src_dir(Path::new("src"));
+    }
 }
