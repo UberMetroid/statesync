@@ -18,17 +18,28 @@ StateSync does **not** move video files. It only copies *where you left off* and
 
 ## Install (Unraid)
 
-1. Docker → **Add Container** (or add this repo as a template source)
-2. Use **`statesync.xml`** from this repo (or `unraid/unraid-template.xml`)
-3. Check:
-   - **Network:** bridge  
-   - **Port:** `4601`  
-   - **Appdata:** `/mnt/user/appdata/statesync`
-4. Apply, then open: `http://YOUR-UNRAID-IP:4601`
+1. Docker → **Add Container** (import `statesync.xml` from this repo if needed)
+2. **Network Type: `br0`** (same custom network Emby/Jellyfin use)
+3. Optional: give StateSync its own fixed IP on that network
+4. Appdata: `/mnt/user/appdata/statesync`
+5. Apply, open `http://STATESYNC-IP:4601` (or the IP Unraid shows for the container)
 
 No login.
 
----
+### Networking (read this if “can’t connect to Emby”)
+
+If Emby or Jellyfin has its **own LAN IP** on Unraid **br0** (macvlan):
+
+| StateSync network | Can reach Emby on br0? |
+|-------------------|-------------------------|
+| `br0` (same as Emby) | **Yes** — put StateSync here |
+| `bridge` (default docker0) | **Usually no** |
+| `host` | **Usually no** (host cannot talk to its own macvlan containers) |
+
+Your PC can open Emby’s IP in a browser. That does **not** mean a container on `bridge`/`host` can. Put StateSync on **br0** next to Emby, then use Emby’s br0 IP in **Add server**.
+
+You can paste a full browser URL; only host:port is kept.
+
 
 ## Install (Docker Compose)
 
