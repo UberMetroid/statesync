@@ -5,7 +5,6 @@ pub mod scripts_actions;
 pub mod scripts_config_save;
 pub mod scripts_force_ui;
 pub mod scripts_map_settings;
-pub mod scripts_modals;
 pub mod scripts_server_form;
 pub mod scripts_sessions_users;
 pub mod styles;
