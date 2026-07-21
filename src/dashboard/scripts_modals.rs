@@ -51,9 +51,12 @@ async function autoFetchServerName() {
       return;
     }
     const data = await res.json();
+    if (typeof data.is_emby === 'boolean') {
+      $('serverType').value = data.is_emby ? 'emby' : 'jellyfin';
+    }
     if (data.name) {
       $('serverName').value = data.name;
-      showToast('AUTO FILLED: ' + data.name);
+      showToast('AUTO FILLED: ' + data.name + (data.is_emby ? ' [EMBY]' : ' [JELLYFIN]'));
     } else {
       showToast('SERVER DID NOT RETURN A NAME');
     }

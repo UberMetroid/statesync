@@ -147,6 +147,7 @@ pub async fn get_server_info(
                         .unwrap_or(""),
                     "version": info.get("Version").and_then(|v| v.as_str()).unwrap_or(""),
                     "id": info.get("Id").and_then(|v| v.as_str()).unwrap_or(""),
+                    "is_emby": info.get("is_emby").and_then(|v| v.as_bool()).unwrap_or(false),
                 }))
                 .unwrap_or_else(|_| "{}".to_string()),
             ))

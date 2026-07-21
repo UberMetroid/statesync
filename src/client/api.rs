@@ -5,24 +5,44 @@ use super::request::send_with_retry;
 
 impl MediaClient {
     pub async fn get_public_server_info(&self) -> Result<serde_json::Value> {
-        let path = "/System/Info/Public".to_string();
-        let url = self.url_path(&path);
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .context("Failed to fetch /System/Info/Public")?;
+        let clean_url = self.url.trim_end_matches('/');
+        let primary_url = format!("{}/System/Info/Public", clean_url);
+        let emby_url = format!("{}/emby/System/Info/Public", clean_url);
+
+        let resp = match self.client.get(&primary_url).send().await {
+            Ok(r) if r.status().is_success() => r,
+            _ => self
+                .client
+                .get(&emby_url)
+                .send()
+                .await
+                .context("Failed to fetch /System/Info/Public")?,
+        };
+
         if !resp.status().is_success() {
             return Err(anyhow!(
                 "/System/Info/Public returned HTTP {}",
                 resp.status()
             ));
         }
-        let data: serde_json::Value = resp
+
+        let mut data: serde_json::Value = resp
             .json()
             .await
             .context("Failed to parse /System/Info/Public response")?;
+
+        let product_name = data
+            .get("ProductName")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let is_emby = product_name.contains("emby")
+            || (data.get("LocalAddress").is_some() && !product_name.contains("jellyfin"));
+
+        if let Some(obj) = data.as_object_mut() {
+            obj.insert("is_emby".to_string(), serde_json::Value::Bool(is_emby));
+        }
+
         Ok(data)
     }
 
@@ -30,17 +50,41 @@ impl MediaClient {
         let mut map = HashMap::new();
         let mut start_index: usize = 0;
         let page_size: usize = 500;
+        let clean_url = self.url.trim_end_matches('/');
+        let alt_prefix = if self.is_emby { "" } else { "/emby" };
+
         loop {
             let path = format!("/Users?StartIndex={}&Limit={}", start_index, page_size);
-            let url = self.url_path(&path);
-            let resp = send_with_retry(self.add_auth_headers(self.client.get(&url)), "get_users")
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to get users list (page {})",
-                        start_index / page_size
+            let primary_url = self.url_path(&path);
+            let mut resp = send_with_retry(
+                self.add_auth_headers(self.client.get(&primary_url)),
+                "get_users",
+            )
+            .await;
+
+            if let Err(ref e) = resp {
+                if e.to_string().contains("404") {
+                    let alt_url = format!(
+                        "{}{}/Users?StartIndex={}&Limit={}",
+                        clean_url, alt_prefix, start_index, page_size
+                    );
+                    if let Ok(alt_resp) = send_with_retry(
+                        self.add_auth_headers(self.client.get(&alt_url)),
+                        "get_users_alt",
                     )
-                })?;
+                    .await
+                    {
+                        resp = Ok(alt_resp);
+                    }
+                }
+            }
+
+            let resp = resp.with_context(|| {
+                format!(
+                    "Failed to get users list (page {})",
+                    start_index / page_size
+                )
+            })?;
             let data: serde_json::Value = resp
                 .json()
                 .await
