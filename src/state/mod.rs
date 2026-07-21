@@ -22,6 +22,8 @@ pub struct SyncHistoryValue {
     pub timestamp: Instant,
     /// Whether the last synced update marked the item as played.
     pub played: bool,
+    /// Last synced favorite flag (None = never synced favorites for this key).
+    pub favorite: Option<bool>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

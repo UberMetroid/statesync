@@ -109,6 +109,9 @@ pub async fn handle_sessions_event(
     if config.servers[source_index].sync_direction == "receive" {
         return;
     }
+    if !config.sync.live_position && !config.sync.live_played {
+        return;
+    }
 
     // Only sync on meaningful position/pause change (poll is ~1s).
     let thresh = (config.sync_threshold_seconds as i64).saturating_mul(10_000_000);
@@ -200,10 +203,32 @@ pub async fn handle_userdata_changed_event(
             continue;
         }
 
+        // Favorites path (independent of progress).
+        if let Some(is_fav) = entry.is_favorite {
+            if config.sync.live_favorites {
+                let un = user_name.clone();
+                let iid = entry.item_id.clone();
+                let sn = source_name.to_string();
+                let st = state_lock.clone();
+                let tc = target_clients.to_vec();
+                let cfg = config.clone();
+                let sc = source_client.clone();
+                tokio::spawn(async move {
+                    crate::sync::sync_favorite_to_targets(
+                        &un, &iid, is_fav, &sn, source_index, &st, &tc, &cfg, &sc, None,
+                    )
+                    .await;
+                });
+            }
+        }
+
         let user_name_clone = user_name.clone();
         let item_id_clone = entry.item_id.clone();
         let Some(pos) = entry.playback_position_ticks else {
             if !entry.played {
+                continue;
+            }
+            if !config.sync.live_played {
                 continue;
             }
             spawn_userdata_sync(
@@ -220,6 +245,9 @@ pub async fn handle_userdata_changed_event(
             );
             continue;
         };
+        if !config.sync.live_position && !(config.sync.live_played && entry.played) {
+            continue;
+        }
         spawn_userdata_sync(
             user_name_clone,
             item_id_clone,

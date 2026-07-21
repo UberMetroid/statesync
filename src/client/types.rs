@@ -28,12 +28,15 @@ pub struct UserDataEntry {
     #[serde(alias = "itemId", alias = "ItemId")]
     /// Missing documentation.
     pub item_id: String,
-    #[serde(alias = "played", alias = "Played")]
+    #[serde(default, alias = "played", alias = "Played")]
     /// Missing documentation.
     pub played: bool,
     #[serde(alias = "playbackPositionTicks", alias = "PlaybackPositionTicks")]
     /// Missing documentation.
     pub playback_position_ticks: Option<i64>,
+    #[serde(default, alias = "isFavorite", alias = "IsFavorite")]
+    /// Missing documentation.
+    pub is_favorite: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -91,6 +94,9 @@ pub struct PlayedItem {
     )]
     /// Missing documentation.
     pub playback_position_ticks: Option<i64>,
+    #[serde(default, alias = "IsFavorite", alias = "isFavorite")]
+    /// Missing documentation.
+    pub is_favorite: Option<bool>,
     #[serde(default, alias = "LastPlayedDate", alias = "lastPlayedDate")]
     /// Missing documentation.
     pub last_played_date: Option<String>,

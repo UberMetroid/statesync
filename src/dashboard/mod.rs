@@ -71,8 +71,8 @@ pub fn render_dashboard() -> Markup {
                         div id="howSyncBody" {
                             p class="how-lead" {
                                 "StateSync never moves video files. It only copies "
-                                strong { "who watched what, how far, and whether it is marked played" }
-                                " between Emby and Jellyfin."
+                                strong { "watched, resume point, and favorites" }
+                                " between Emby and Jellyfin (and same-type pairs)."
                             }
                             div class="how-grid" {
                                 div class="how-step" {
@@ -93,17 +93,17 @@ pub fn render_dashboard() -> Markup {
                                 div class="how-step" {
                                     div class="how-num" { "4" }
                                     div class="how-title" { "Live sync" }
-                                    p { "When someone plays, pauses, or finishes, StateSync pushes progress to the other server for that linked user. Near-duplicate updates within the threshold are ignored." }
+                                    p { "Play, pause, finish, or heart a title → StateSync pushes played, position, and/or favorites (see Settings). Near-duplicates within the threshold are ignored." }
                                 }
                                 div class="how-step" {
                                     div class="how-num" { "5" }
                                     div class="how-title" { "Force sync" }
-                                    p { "A full historical backfill: walks played history on each side and pushes missing played / progress state. Live play events pause while this runs." }
+                                    p { "Historical backfill: played history, in-progress positions, then favorites. Live play events pause until it finishes. Phases show in the banner." }
                                 }
                                 div class="how-step" {
                                     div class="how-num" { "6" }
                                     div class="how-title" { "What is not synced" }
-                                    p { "Watchlists, ratings, collections, home-screen layout, passwords, and library structure stay local to each server." }
+                                    p { "Ratings, playlists, collections, hidden items, home layout, passwords, and library structure stay local." }
                                 }
                             }
                             div class="how-legend" {
@@ -207,6 +207,22 @@ pub fn render_dashboard() -> Markup {
                             label { "Sync threshold (seconds)" }
                             input type="number" id="syncThreshold" min="1" max="60" value="5" {};
                             p class="form-hint" { "Ignore near-duplicate progress updates within this window." }
+                        }
+                        div class="form-group" {
+                            label { "Live sync" }
+                            p class="form-hint" style="margin-bottom:8px" { "While people watch — what to copy as events happen." }
+                            label class="check-row" { input type="checkbox" id="syncLivePlayed" checked; " Played (mark watched)" }
+                            label class="check-row" { input type="checkbox" id="syncLivePosition" checked; " Position (resume point)" }
+                            label class="check-row" { input type="checkbox" id="syncLiveFavorites" checked; " Favorites (heart)" }
+                        }
+                        div class="form-group" {
+                            label { "Force sync" }
+                            p class="form-hint" style="margin-bottom:8px" { "Historical backfill when you press Force sync." }
+                            label class="check-row" { input type="checkbox" id="syncForcePlayed" checked; " Played history" }
+                            label class="check-row" { input type="checkbox" id="syncForcePosition" checked; " In-progress positions" }
+                            label class="check-row" { input type="checkbox" id="syncForceFavorites" checked; " Favorites" }
+                            label class="check-row" { input type="checkbox" id="syncForceUnwatch"; " Unwatch / clear played (off by default)" }
+                            p class="form-hint" { "Unwatch is high-regret and not applied yet even if checked — reserved." }
                         }
                         div class="form-group" {
                             label { "Username mappings (advanced text)" }

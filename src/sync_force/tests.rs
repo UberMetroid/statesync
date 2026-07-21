@@ -33,6 +33,9 @@ mod tests {
             current_user: None,
             last_error: None,
             errors: Vec::new(),
+            phase: None,
+            by_field: Default::default(),
+            scope: Vec::new(),
         };
         assert_eq!(status.processed, 2);
         assert_eq!(status.total_pairs, 5);

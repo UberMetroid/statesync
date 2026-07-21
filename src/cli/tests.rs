@@ -18,6 +18,7 @@ async fn test_init_clients_parallel_connection_failure() {
         sync_threshold_seconds: 5,
         user_mappings: vec![],
         last_full_sync: None,
+        sync: Default::default(),
     };
 
     let app_state = Arc::new(Mutex::new(AppState::new(vec![])));

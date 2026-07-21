@@ -168,6 +168,9 @@ pub async fn get_status(
         "total_pairs": tracker_status.total_pairs,
         "current_user": tracker_status.current_user,
         "last_error": tracker_status.last_error,
+        "phase": tracker_status.phase,
+        "by_field": tracker_status.by_field,
+        "scope": tracker_status.scope,
     });
 
     Json(json!({
@@ -179,6 +182,7 @@ pub async fn get_status(
         "users": users,
         "users_by_server": users_by_server,
         "user_mappings": config.user_mappings,
+        "sync": config.sync,
         "active_sessions": sessions_json,
         "sync_logs": sync_logs,
         "last_full_sync": last_full_sync

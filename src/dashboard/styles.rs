@@ -241,6 +241,13 @@ select {
   outline: none; border-color: var(--accent);
 }
 .form-hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
+.check-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--bright); margin: 6px 0;
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+  cursor: pointer;
+}
+.check-row input { width: auto; accent-color: var(--accent); }
 .modal-actions {
   display: flex; flex-wrap: wrap; justify-content: space-between;
   align-items: center; gap: 10px; margin-top: 18px;

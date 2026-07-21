@@ -85,7 +85,20 @@ async function loadDashboard() {
       authedFetch('/api/status')
     ]);
     currentConfig = await configRes.json(); const status = await statusRes.json();
+    if (!currentConfig.sync) currentConfig.sync = {
+      live_played: true, live_position: true, live_favorites: true,
+      force_played: true, force_position: true, force_favorites: true, force_unwatch: false
+    };
     if ($('syncThreshold')) $('syncThreshold').value = currentConfig.sync_threshold_seconds;
+    const s = currentConfig.sync;
+    const setChk = (id, v) => { const el = $(id); if (el) el.checked = !!v; };
+    setChk('syncLivePlayed', s.live_played !== false);
+    setChk('syncLivePosition', s.live_position !== false);
+    setChk('syncLiveFavorites', s.live_favorites !== false);
+    setChk('syncForcePlayed', s.force_played !== false);
+    setChk('syncForcePosition', s.force_position !== false);
+    setChk('syncForceFavorites', s.force_favorites !== false);
+    setChk('syncForceUnwatch', !!s.force_unwatch);
     if ($('cfgUserMappings')) {
       $('cfgUserMappings').value = (currentConfig.user_mappings || []).map(group => group.join(', ')).join('\n');
     }

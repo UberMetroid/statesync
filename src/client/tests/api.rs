@@ -243,3 +243,36 @@ async fn test_get_user_played_items_count() {
     mock_500.assert_async().await;
     unsafe { std::env::remove_var("STATESYNC_HTTP_RETRY"); }
 }
+
+#[tokio::test]
+async fn test_update_favorite_posts_is_favorite_only() {
+    let _guard = match super::TEST_LOCK.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/Users/u1/Items/item1/UserData")
+        .match_body(mockito::Matcher::PartialJsonString(
+            r#"{"IsFavorite":true}"#.to_string(),
+        ))
+        .with_status(200)
+        .with_body("{}")
+        .create_async()
+        .await;
+    let client = MediaClient::new(server.url(), "key".to_string(), false);
+    client.update_favorite("u1", "item1", true).await.unwrap();
+    mock.assert_async().await;
+}
+
+#[test]
+fn test_userdata_entry_deserializes_favorite() {
+    let v: crate::client::UserDataEntry = serde_json::from_value(serde_json::json!({
+        "ItemId": "abc",
+        "Played": false,
+        "IsFavorite": true
+    })).unwrap();
+    assert_eq!(v.item_id, "abc");
+    assert_eq!(v.is_favorite, Some(true));
+    assert!(!v.played);
+}

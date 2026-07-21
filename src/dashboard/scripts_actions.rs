@@ -48,8 +48,13 @@ pub const JS_ACTIONS: &str = r#"    const logsDiv = $('syncLogs');
         const label = st === 'completed' ? 'finished cleanly' : 'finished with errors';
         let story = 'Last force sync <span style="color:' + statusColor + '">' + label + '</span> ' + ago + '. ';
         story += 'Looked at ' + (fs.processed || 0) + ' items, pushed ' + (fs.succeeded || 0);
-        if (fs.skipped > 0) story += ', skipped ' + fs.skipped + ' (already matched)';
+        if (fs.skipped > 0) story += ', skipped ' + fs.skipped;
         if (fs.failed > 0) story += ', failed ' + fs.failed;
+        const bf = fs.by_field || {};
+        if (bf.favorite && (bf.favorite.ok || bf.favorite.skip || bf.favorite.fail)) {
+          story += ' · favorites ' + (bf.favorite.ok || 0) + ' ok';
+        }
+        if (fs.scope && fs.scope.length) story += ' · scope ' + fs.scope.join('/');
         story += '.';
         left.innerHTML = story;
       } else if (st === 'running' || (fs.started_at && !fs.finished_at)) {

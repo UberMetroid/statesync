@@ -136,6 +136,7 @@ mod tests {
             sync_threshold_seconds: 5,
             user_mappings: vec![],
             last_full_sync: None,
+        sync: Default::default(),
         };
 
         handle_sessions_event(
@@ -169,6 +170,7 @@ mod tests {
                 item_id: "item_1".to_string(),
                 played: true,
                 playback_position_ticks: Some(1000),
+                is_favorite: None,
             }],
         };
 
@@ -185,6 +187,7 @@ mod tests {
             sync_threshold_seconds: 5,
             user_mappings: vec![],
             last_full_sync: None,
+        sync: Default::default(),
         };
 
         handle_userdata_changed_event(

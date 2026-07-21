@@ -9,6 +9,7 @@ pub fn make_config(servers: Vec<ServerConfig>, user_mappings: Vec<Vec<String>>) 
         sync_threshold_seconds: 5,
         user_mappings,
         last_full_sync: None,
+        sync: Default::default(),
     }
 }
 
@@ -61,6 +62,7 @@ async fn threshold_skips_duplicate_update() {
                 position_ticks: 1000,
                 timestamp: std::time::Instant::now(),
                 played: false,
+                favorite: None,
             },
         );
     }
@@ -219,6 +221,7 @@ async fn played_true_is_debounced_via_history() {
                 position_ticks: 0,
                 timestamp: std::time::Instant::now(),
                 played: true,
+                favorite: None,
             },
         );
     }

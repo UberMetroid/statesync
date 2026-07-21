@@ -239,6 +239,16 @@ async function deleteServer(idx) {
 }
 async function saveSettings() {
   currentConfig.sync_threshold_seconds = parseInt($('syncThreshold').value);
+  const chk = (id, def) => { const el = $(id); return el ? !!el.checked : def; };
+  currentConfig.sync = {
+    live_played: chk('syncLivePlayed', true),
+    live_position: chk('syncLivePosition', true),
+    live_favorites: chk('syncLiveFavorites', true),
+    force_played: chk('syncForcePlayed', true),
+    force_position: chk('syncForcePosition', true),
+    force_favorites: chk('syncForceFavorites', true),
+    force_unwatch: chk('syncForceUnwatch', false)
+  };
   const mappingsLines = $('cfgUserMappings').value.split('\n');
   const user_mappings = [];
   mappingsLines.forEach(line => {
@@ -298,43 +308,76 @@ window._forceSyncOptimistic = false;
 function forceStateKey(state) {
   return String(state || '').toLowerCase();
 }
+function forcePhaseLabel(phase) {
+  const p = String(phase || '').toLowerCase();
+  if (p === 'preparing') return 'Preparing';
+  if (p === 'played') return 'Played history';
+  if (p === 'favorites') return 'Favorites';
+  if (p === 'finishing') return 'Finishing';
+  if (p === 'done') return 'Done';
+  if (p === 'cancelled') return 'Cancelled';
+  return 'Force sync';
+}
 function applyForceSyncLiveUi(fs) {
   const live = $('forceSyncLive');
   if (!live || !fs) return;
   const totalPairs = fs.total_pairs || 0;
   const processed = fs.processed || 0;
-  const denom = totalPairs > 0 ? totalPairs : Math.max(processed, 1);
   const pct = totalPairs > 0 ? Math.min(100, Math.floor(processed / totalPairs * 100)) : 0;
   const startedMs = fs.started_at ? new Date(fs.started_at).getTime() : Date.now();
   const elapsed = Math.max(0, Math.round((Date.now() - startedMs) / 1000));
   const rate = elapsed > 0 ? (processed / elapsed).toFixed(1) : '0';
+  const st = forceStateKey(fs.state);
+  const done = st === 'completed' || st === 'failed' || !!fs.finished_at;
   live.style.display = 'flex';
   const title = $('fsStoryTitle');
-  if (title) title.textContent = 'Force sync in progress';
+  if (title) {
+    if (done && st === 'completed') title.textContent = 'Force sync finished';
+    else if (done && st === 'failed') title.textContent = 'Force sync finished with errors';
+    else title.textContent = 'Force sync · ' + forcePhaseLabel(fs.phase);
+  }
   const bar = $('fsProgressBar');
-  if (bar) { bar.value = pct; bar.max = 100; }
+  if (bar) { bar.value = done && totalPairs === 0 ? 100 : pct; bar.max = 100; }
   const txt = $('fsProgressText');
   if (txt) {
     txt.textContent = totalPairs > 0
       ? (pct + '% · ' + processed + ' / ' + totalPairs + ' · ' + rate + '/s')
-      : (processed + ' items · starting…');
+      : (processed + ' items · ' + (done ? 'done' : 'starting…'));
   }
   const cu = $('fsCurrentUser');
   if (cu) {
-    cu.textContent = fs.current_user
-      ? ('Working on user: ' + fs.current_user)
-      : (processed === 0 ? 'Building user pairs and loading played history…' : 'Matching titles across servers…');
+    const phase = String(fs.phase || '').toLowerCase();
+    if (fs.current_user) {
+      cu.textContent = (phase === 'favorites' ? 'Favorites for: ' : 'Working on user: ') + fs.current_user;
+    } else if (phase === 'preparing' || processed === 0) {
+      cu.textContent = 'Building user pairs and loading history…';
+    } else if (phase === 'favorites') {
+      cu.textContent = 'Copying hearts across servers…';
+    } else if (phase === 'played') {
+      cu.textContent = 'Matching titles and pushing played state…';
+    } else {
+      cu.textContent = '';
+    }
   }
   const detail = $('fsStoryDetail');
   if (detail) {
+    const bf = fs.by_field || {};
+    const played = bf.played || {};
+    const fav = bf.favorite || {};
     const parts = [];
-    parts.push('Live play sync is paused while this runs.');
-    parts.push('Pushed ' + (fs.succeeded || 0) + ', already matched ' + (fs.skipped || 0) + ', failed ' + (fs.failed || 0) + '.');
+    if (!done) parts.push('Live play sync is paused while this runs.');
+    if (fs.scope && fs.scope.length) parts.push('Scope: ' + fs.scope.join(', ') + '.');
+    parts.push('Pushed ' + (fs.succeeded || 0) + ', skipped ' + (fs.skipped || 0) + ', failed ' + (fs.failed || 0) + '.');
+    if (played.ok || played.skip || played.fail) {
+      parts.push('Played ' + (played.ok || 0) + ' ok / ' + (played.skip || 0) + ' skip / ' + (played.fail || 0) + ' fail.');
+    }
+    if (fav.ok || fav.skip || fav.fail) {
+      parts.push('Favorites ' + (fav.ok || 0) + ' ok / ' + (fav.skip || 0) + ' skip / ' + (fav.fail || 0) + ' fail.');
+    }
     if (fs.last_error) parts.push('Last error: ' + fs.last_error);
     if (elapsed > 0) parts.push('Elapsed ' + elapsed + 's.');
     detail.textContent = parts.join(' ');
   }
-  void denom;
 }
 async function forceSync() {
   const btn = $('forceSyncBtn');

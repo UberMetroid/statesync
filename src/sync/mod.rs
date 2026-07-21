@@ -8,7 +8,7 @@ pub mod progress;
 #[cfg(test)]
 pub mod tests;
 
-pub use progress::sync_progress_to_targets;
+pub use progress::{sync_favorite_to_targets, sync_progress_to_targets};
 
 fn sync_semaphore() -> &'static Semaphore {
     static S: OnceLock<Semaphore> = OnceLock::new();

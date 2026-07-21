@@ -3,8 +3,11 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::info;
 
-use super::{Direction, ForceContext, ForceSyncError, ForceSyncState, ForceSyncStatus, write_status};
-use super::sync_loop::force_sync_pair;
+use super::{
+    Direction, ForceByField, ForceContext, ForceSyncError, ForceSyncState, ForceSyncStatus,
+    write_status,
+};
+use super::sync_loop::{force_sync_favorites_pair, force_sync_pair};
 
 pub(super) fn rate_from_env() -> u32 {
     std::env::var("STATESYNC_FORCE_RATE")
@@ -28,6 +31,16 @@ pub async fn run_force_sync(ctx: ForceContext) -> ForceSyncStatus {
         .store(false, Ordering::SeqCst);
 
     let started = chrono::Utc::now();
+    let mut scope = Vec::new();
+    if ctx.config.sync.force_played {
+        scope.push("played".to_string());
+    }
+    if ctx.config.sync.force_position {
+        scope.push("position".to_string());
+    }
+    if ctx.config.sync.force_favorites {
+        scope.push("favorites".to_string());
+    }
     {
         let mut status = ctx.tracker.status.lock().await;
         *status = ForceSyncStatus {
@@ -43,7 +56,26 @@ pub async fn run_force_sync(ctx: ForceContext) -> ForceSyncStatus {
             current_user: None,
             last_error: None,
             errors: Vec::new(),
+            phase: Some("preparing".to_string()),
+            by_field: ForceByField::default(),
+            scope: scope.clone(),
         };
+    }
+    {
+        let mut st = ctx.state.lock().await;
+        st.log_event_detail(
+            "info",
+            "Force sync started",
+            Some(format!(
+                "scope={} · direction={:?} · live play sync paused until finished",
+                if scope.is_empty() {
+                    "none".to_string()
+                } else {
+                    scope.join(",")
+                },
+                ctx.direction
+            )),
+        );
     }
 
     let result = run_force_sync_inner(&ctx, started).await;
@@ -126,24 +158,39 @@ async fn run_force_sync_inner(
         result
     };
 
-    let mut total_items = 0;
+    let mut total_items = 0u64;
     for (src_idx, _, _, src_user_id, _) in &pairs {
         let source_client = ctx.clients[*src_idx].clone();
-        if let Ok(count) = source_client.get_user_played_items_count(src_user_id).await {
-            total_items += count;
+        if config.sync.force_played || config.sync.force_position {
+            if let Ok(count) = source_client.get_user_played_items_count(src_user_id).await {
+                total_items = total_items.saturating_add(count);
+            }
+        }
+        if config.sync.force_favorites {
+            if let Ok(count) = source_client.get_user_favorite_items_count(src_user_id).await {
+                total_items = total_items.saturating_add(count);
+            }
         }
     }
 
     {
         let mut status = ctx.tracker.status.lock().await;
-        status.total_pairs = if total_items > 0 { total_items } else { pairs.len() as u64 };
+        status.total_pairs = if total_items > 0 {
+            total_items
+        } else {
+            pairs.len() as u64
+        };
+        status.phase = Some("preparing".to_string());
     }
 
     info!(
-        "force-sync starting: direction={:?}, pairs={}, rate={}/sec",
+        "force-sync starting: direction={:?}, pairs={}, rate={}/sec, scope played={} position={} favorites={}",
         ctx.direction,
         pairs.len(),
-        rate_from_env()
+        rate_from_env(),
+        config.sync.force_played,
+        config.sync.force_position,
+        config.sync.force_favorites,
     );
 
     let rate = rate_from_env();
@@ -158,34 +205,86 @@ async fn run_force_sync_inner(
     let mut errors: Vec<ForceSyncError> = Vec::new();
 
     let mut cancelled = false;
-    for (src_idx, tgt_idx, src_username, src_user_id, tgt_user_id) in &pairs {
-        if ctx.tracker.cancel.load(Ordering::SeqCst) {
-            cancelled = true;
-            break;
-        }
-        status.current_user = Some(src_username.clone());
+
+    // Phase: played history
+    if config.sync.force_played || config.sync.force_position {
+        status.phase = Some("played".to_string());
         write_status(&ctx.tracker, &status);
+        {
+            let mut st = ctx.state.lock().await;
+            st.log_event("info", "Force sync: scanning played history");
+        }
+        for (src_idx, tgt_idx, src_username, src_user_id, tgt_user_id) in &pairs {
+            if ctx.tracker.cancel.load(Ordering::SeqCst) {
+                cancelled = true;
+                break;
+            }
+            status.current_user = Some(src_username.clone());
+            status.phase = Some("played".to_string());
+            write_status(&ctx.tracker, &status);
 
-        cancelled = force_sync_pair(
-            *src_idx,
-            *tgt_idx,
-            src_username,
-            src_user_id,
-            tgt_user_id,
-            ctx,
-            &mut status,
-            &mut processed_total,
-            &mut succeeded_total,
-            &mut skipped_total,
-            &mut failed_total,
-            &mut errors,
-            &semaphore,
-            min_interval,
-        )
-        .await;
+            cancelled = force_sync_pair(
+                *src_idx,
+                *tgt_idx,
+                src_username,
+                src_user_id,
+                tgt_user_id,
+                ctx,
+                &mut status,
+                &mut processed_total,
+                &mut succeeded_total,
+                &mut skipped_total,
+                &mut failed_total,
+                &mut errors,
+                &semaphore,
+                min_interval,
+            )
+            .await;
 
-        if cancelled {
-            break;
+            if cancelled {
+                break;
+            }
+        }
+    }
+
+    // Phase: favorites
+    if !cancelled && config.sync.force_favorites {
+        status.phase = Some("favorites".to_string());
+        write_status(&ctx.tracker, &status);
+        {
+            let mut st = ctx.state.lock().await;
+            st.log_event("info", "Force sync: copying favorites");
+        }
+        for (src_idx, tgt_idx, src_username, src_user_id, tgt_user_id) in &pairs {
+            if ctx.tracker.cancel.load(Ordering::SeqCst) {
+                cancelled = true;
+                break;
+            }
+            status.current_user = Some(src_username.clone());
+            status.phase = Some("favorites".to_string());
+            write_status(&ctx.tracker, &status);
+
+            cancelled = force_sync_favorites_pair(
+                *src_idx,
+                *tgt_idx,
+                src_username,
+                src_user_id,
+                tgt_user_id,
+                ctx,
+                &mut status,
+                &mut processed_total,
+                &mut succeeded_total,
+                &mut skipped_total,
+                &mut failed_total,
+                &mut errors,
+                &semaphore,
+                min_interval,
+            )
+            .await;
+
+            if cancelled {
+                break;
+            }
         }
     }
 
@@ -193,6 +292,7 @@ async fn run_force_sync_inner(
     status.finished_at = Some(now.to_rfc3339());
     status.current_user = None;
     status.errors = errors.clone();
+    status.phase = Some("finishing".to_string());
     if cancelled {
         status.state = ForceSyncState::Failed;
         status.last_error = Some("Sync cancelled by user".to_string());
@@ -207,7 +307,52 @@ async fn run_force_sync_inner(
     status.succeeded = succeeded_total;
     status.skipped = skipped_total;
     status.failed = failed_total;
+    status.phase = Some(if cancelled {
+        "cancelled".to_string()
+    } else {
+        "done".to_string()
+    });
     write_status(&ctx.tracker, &status);
+
+    {
+        let mut st = ctx.state.lock().await;
+        let level = if failed_total == 0 && !cancelled {
+            "success"
+        } else if cancelled {
+            "warn"
+        } else {
+            "error"
+        };
+        st.log_event_detail(
+            level,
+            if cancelled {
+                "Force sync cancelled"
+            } else if failed_total == 0 {
+                "Force sync finished"
+            } else {
+                "Force sync finished with errors"
+            },
+            Some(format!(
+                "processed={} succeeded={} skipped={} failed={} | played ok={} skip={} fail={} | favorites ok={} skip={} fail={} | {}s",
+                status.processed,
+                status.succeeded,
+                status.skipped,
+                status.failed,
+                status.by_field.played.ok,
+                status.by_field.played.skip,
+                status.by_field.played.fail,
+                status.by_field.favorite.ok,
+                status.by_field.favorite.skip,
+                status.by_field.favorite.fail,
+                status
+                    .started_at
+                    .as_ref()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|s| (now - s.with_timezone(&chrono::Utc)).num_seconds())
+                    .unwrap_or(0)
+            )),
+        );
+    }
 
     info!(
         "force-sync {}: processed={} succeeded={} skipped={} failed={}",

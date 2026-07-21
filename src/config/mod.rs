@@ -55,6 +55,56 @@ fn default_sync_direction() -> String {
     "both".to_string()
 }
 
+/// What StateSync is allowed to copy (safe power-law set).
+///
+/// Live = as play/favorite events happen. Force = historical backfill.
+/// Missing fields in old configs deserialize to these defaults.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SyncOptions {
+    /// Live: copy Played flag from UserData / finish events.
+    #[serde(default = "default_true")]
+    pub live_played: bool,
+    /// Live: copy playback position while watching.
+    #[serde(default = "default_true")]
+    pub live_position: bool,
+    /// Live: copy IsFavorite (heart).
+    #[serde(default = "default_true")]
+    pub live_favorites: bool,
+    /// Force: push played history.
+    #[serde(default = "default_true")]
+    pub force_played: bool,
+    /// Force: push in-progress positions with played history.
+    #[serde(default = "default_true")]
+    pub force_position: bool,
+    /// Force: push favorites.
+    #[serde(default = "default_true")]
+    pub force_favorites: bool,
+    /// Force: clear played on target when source is unwatched (high regret; off).
+    #[serde(default = "default_false")]
+    pub force_unwatch: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_false() -> bool {
+    false
+}
+
+impl Default for SyncOptions {
+    fn default() -> Self {
+        Self {
+            live_played: true,
+            live_position: true,
+            live_favorites: true,
+            force_played: true,
+            force_position: true,
+            force_favorites: true,
+            force_unwatch: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 /// Missing documentation.
 pub struct Config {
@@ -69,6 +119,9 @@ pub struct Config {
     #[serde(default)]
     /// Missing documentation.
     pub last_full_sync: Option<crate::sync_force::ForceSyncStatus>,
+    /// Live / force field toggles (played, position, favorites).
+    #[serde(default)]
+    pub sync: SyncOptions,
 }
 
 fn default_threshold_seconds() -> u64 {

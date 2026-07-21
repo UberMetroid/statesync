@@ -76,3 +76,18 @@ fn test_normalize_server_url_strips_any_pasted_web_ui() {
     assert_eq!(name_from_url("http://emby.lan/web/"), "emby.lan");
     assert_eq!(name_from_url("http://[fe80::1]:8096/"), "[fe80::1]:8096");
 }
+
+#[test]
+fn test_sync_options_default_power_law() {
+    let s = crate::config::SyncOptions::default();
+    assert!(s.live_played && s.live_position && s.live_favorites);
+    assert!(s.force_played && s.force_position && s.force_favorites);
+    assert!(!s.force_unwatch);
+}
+
+#[test]
+fn test_sync_options_missing_fields_deserialize() {
+    let cfg: crate::config::Config = serde_json::from_str(r#"{"servers":[]}"#).unwrap();
+    assert!(cfg.sync.live_favorites);
+    assert!(!cfg.sync.force_unwatch);
+}

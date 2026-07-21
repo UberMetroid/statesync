@@ -180,6 +180,9 @@ mod extra_tests {
             current_user: None,
             last_error: Some("err".to_string()),
             errors: vec![],
+            phase: None,
+            by_field: Default::default(),
+            scope: Vec::new(),
         };
         assert_eq!(status.state, ForceSyncState::Completed);
         assert_eq!(status.total_pairs, 10);

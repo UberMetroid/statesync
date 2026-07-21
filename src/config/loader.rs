@@ -142,6 +142,7 @@ impl Config {
             sync_threshold_seconds: threshold,
             user_mappings: Vec::new(),
             last_full_sync: None,
+            sync: super::SyncOptions::default(),
         })
     }
 }
@@ -169,6 +170,7 @@ pub fn default_config() -> Config {
         sync_threshold_seconds: 5,
         user_mappings: Vec::new(),
         last_full_sync: None,
+        sync: super::SyncOptions::default(),
     }
 }
 

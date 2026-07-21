@@ -73,6 +73,27 @@ pub struct ForceSyncError {
     pub message: String,
 }
 
+/// Per-signal counters for force sync storytelling in the WUI.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct FieldCounters {
+    #[serde(default)]
+    pub ok: u64,
+    #[serde(default)]
+    pub skip: u64,
+    #[serde(default)]
+    pub fail: u64,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct ForceByField {
+    #[serde(default)]
+    pub played: FieldCounters,
+    #[serde(default)]
+    pub position: FieldCounters,
+    #[serde(default)]
+    pub favorite: FieldCounters,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 /// Missing documentation.
 pub struct ForceSyncStatus {
@@ -100,6 +121,15 @@ pub struct ForceSyncStatus {
     pub last_error: Option<String>,
     /// Missing documentation.
     pub errors: Vec<ForceSyncError>,
+    /// Human phase for WUI: preparing | played | favorites | finishing
+    #[serde(default)]
+    pub phase: Option<String>,
+    /// Per-field counters (played / position / favorite).
+    #[serde(default)]
+    pub by_field: ForceByField,
+    /// Which force scopes were enabled for this run.
+    #[serde(default)]
+    pub scope: Vec<String>,
 }
 
 impl ForceSyncStatus {
@@ -118,6 +148,9 @@ impl ForceSyncStatus {
             current_user: None,
             last_error: None,
             errors: Vec::new(),
+            phase: None,
+            by_field: ForceByField::default(),
+            scope: Vec::new(),
         }
     }
 }
