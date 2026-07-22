@@ -103,23 +103,29 @@ async function removeUserMapping(idx) {
   setTimeout(loadDashboard, 600);
 }
 /** Detect Emby vs Jellyfin via test_connection (tries both). Returns {ok, is_emby, url, message}. */
-async function detectServerType(url, api_key, preferEmby) {
+async function detectServerType(url, api_key, preferEmby, serverIndex) {
+  const body = {
+    url,
+    api_key: api_key || '',
+    // Hint only — server tries both orderings.
+    is_emby: !!preferEmby
+  };
+  // Blank/masked key + index → backend reuses the saved key (same as Live).
+  if (serverIndex !== undefined && serverIndex !== null && serverIndex >= 0) {
+    body.server_index = serverIndex;
+  }
   const res = await authedFetch('/api/test_connection', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      url,
-      api_key,
-      // Hint only — server tries both orderings.
-      is_emby: !!preferEmby
-    })
+    body: JSON.stringify(body)
   });
   const d = await res.json().catch(() => ({}));
   return {
     ok: d.status === 'ok',
     is_emby: !!d.is_emby,
     url: d.url || url,
-    message: d.message || (res.ok ? 'Connected' : 'Connection failed')
+    message: d.message || (res.ok ? 'Connected' : 'Connection failed'),
+    used_saved_key: !!d.used_saved_key
   };
 }
 "#;

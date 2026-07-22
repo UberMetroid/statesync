@@ -36,6 +36,7 @@ async fn test_test_connection_invalid_params() {
         url: "ftp://bad-scheme".to_string(),
         api_key: "key".to_string(),
         is_emby: false,
+        server_index: None,
     };
     let (status, res) = test_connection(Json(req_bad_url)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -45,6 +46,7 @@ async fn test_test_connection_invalid_params() {
         url: "http://localhost:8096".to_string(),
         api_key: "a".repeat(257),
         is_emby: false,
+        server_index: None,
     };
     let (status2, res2) = test_connection(Json(req_long_key)).await;
     assert_eq!(status2, StatusCode::BAD_REQUEST);
@@ -54,6 +56,7 @@ async fn test_test_connection_invalid_params() {
         url: "http://169.254.169.254/latest".to_string(),
         api_key: "key".to_string(),
         is_emby: false,
+        server_index: None,
     };
     let (status3, res3) = test_connection(Json(req_meta)).await;
     assert_eq!(status3, StatusCode::BAD_REQUEST);
@@ -76,6 +79,7 @@ async fn test_test_connection_returns_detailed_error() {
         url: "http://127.0.0.1:1".to_string(), // Unreachable port
         api_key: "key".to_string(),
         is_emby: false,
+        server_index: None,
     };
     let (status, res) = test_connection(Json(req_fail)).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);

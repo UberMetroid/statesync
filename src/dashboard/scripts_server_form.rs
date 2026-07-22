@@ -4,18 +4,42 @@
 pub const JS_SERVER_FORM: &str = r#"function openServerModal(idx) {
   editIndex = idx; const isAdd = idx === -1;
   $('modalTitle').innerText = isAdd ? 'Add server' : 'Edit server';
+  const keyInput = $('serverKey');
+  const liveHint = $('serverLiveHint');
   if (isAdd) {
     $('serverForm').reset();
     $('serverName').value = '';
     setDetectedType(null);
     pickDirection('both');
+    if (keyInput) {
+      keyInput.value = '';
+      keyInput.placeholder = 'API key from Emby/Jellyfin';
+      keyInput.required = true;
+    }
+    if (liveHint) { liveHint.style.display = 'none'; liveHint.textContent = ''; }
   } else {
     const srv = currentConfig.servers[idx];
     setDetectedType(!!srv.is_emby, false);
     $('serverName').value = srv.name || '';
     $('serverUrl').value = srv.url;
-    $('serverKey').value = srv.api_key;
+    // Never put the masked •••• key into the field — Test would send bullets and fail
+    // while Live still works with the real saved key.
+    if (keyInput) {
+      keyInput.value = '';
+      keyInput.placeholder = 'Leave blank to keep saved key';
+      keyInput.required = false;
+    }
     pickDirection(srv.sync_direction || 'both');
+    if (liveHint) {
+      const st = (window._lastStatus && window._lastStatus.servers && window._lastStatus.servers[idx]) || {};
+      const raw = st.websocket_status || '';
+      const live = (raw === 'Connected' || raw === 'Synchronizing');
+      liveHint.style.display = 'block';
+      liveHint.style.color = live ? 'var(--green)' : 'var(--muted)';
+      liveHint.textContent = live
+        ? 'Live right now with the saved settings. Test uses this address; leave API key blank to reuse the saved key.'
+        : 'Not Live yet with saved settings. Test checks address + key (blank key = saved key).';
+    }
   }
   $('serverModal').style.display = 'flex';
   setTimeout(() => { try { $('serverUrl').focus(); } catch(_){} }, 50);

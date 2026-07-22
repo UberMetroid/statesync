@@ -1,11 +1,19 @@
 //! Settings save + connection test handlers.
-pub const JS_CONFIG_SAVE: &str = r#"function testConnection() {
+pub const JS_CONFIG_SAVE: &str = r#"function apiKeyIsPlaceholder(k) {
+  k = String(k || '').trim();
+  return !k || k.indexOf('•') >= 0 || k.indexOf('*') >= 0;
+}
+function testConnection() {
   let url = normalizeServerUrl($('serverUrl').value);
   $('serverUrl').value = url;
   const api_key = $('serverKey').value.trim();
-  if (!url || !api_key) return showToast('Enter a server address and API key first');
-  showToast('Testing connection…');
-  detectServerType(url, api_key, false)
+  const editing = editIndex >= 0;
+  if (!url) return showToast('Enter a server address first');
+  if (!editing && apiKeyIsPlaceholder(api_key)) return showToast('Enter an API key first');
+  showToast(editing && apiKeyIsPlaceholder(api_key)
+    ? 'Testing with saved API key…'
+    : 'Testing connection…');
+  detectServerType(url, api_key, false, editing ? editIndex : null)
     .then(d => {
       if (d.ok) {
         setDetectedType(d.is_emby, true);
@@ -22,11 +30,15 @@ $('serverForm').addEventListener('submit', async (e) => {
   let url = normalizeServerUrl($('serverUrl').value);
   $('serverUrl').value = url;
   const api_key = $('serverKey').value.trim();
-  if (!url || !api_key) return showToast('Enter a server address and API key first');
-  showToast('Detecting server type…');
+  const editing = editIndex >= 0;
+  if (!url) return showToast('Enter a server address first');
+  if (!editing && apiKeyIsPlaceholder(api_key)) return showToast('Enter an API key first');
+  showToast(editing && apiKeyIsPlaceholder(api_key)
+    ? 'Checking with saved API key…'
+    : 'Detecting server type…');
   let is_emby = $('serverType').value === 'emby';
   try {
-    const det = await detectServerType(url, api_key, is_emby);
+    const det = await detectServerType(url, api_key, is_emby, editing ? editIndex : null);
     if (!det.ok) {
       showToast(det.message || 'Could not reach server — fix address/API key before saving');
       return;

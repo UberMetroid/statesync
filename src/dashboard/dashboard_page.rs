@@ -114,7 +114,9 @@ pub fn render_dashboard() -> Markup {
                             }
                             div class="form-group" {
                                 label { "API key" }
-                                input type="password" id="serverKey" required {};
+                                input type="password" id="serverKey" placeholder="API key from Emby/Jellyfin" autocomplete="off" {};
+                                p class="form-hint" { "Editing a saved server: leave blank to keep the stored key. Test and Live both use the real key, not the masked dots." }
+                                p class="form-hint" id="serverLiveHint" style="display:none" {}
                             }
                             div class="form-group" {
                                 label { "Sync direction" }
