@@ -1,5 +1,7 @@
-//! Now-playing poster proxy.
+//! Now-playing poster proxy (Emby/Jellyfin Primary art — not screenshots).
+//! Fetches once per item and serves from an in-memory cache.
 
+use super::poster_cache::{self, CachedPoster};
 use super::validation::{valid_item_id, valid_server_name};
 use crate::client::MediaClient;
 use crate::config::Config;
@@ -8,7 +10,6 @@ use axum::{Extension, body::Body, extract::Query, http::StatusCode, response::Re
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Cap proxied image payload (DoS / memory).
 const MAX_POSTER_BYTES: u64 = 2 * 1024 * 1024;
 
 pub async fn serve_poster(
@@ -20,6 +21,10 @@ pub async fn serve_poster(
 
     if !valid_server_name(&server_name) || !valid_item_id(&item_id) {
         return bad_request();
+    }
+
+    if let Some(cached) = poster_cache::get(&server_name, &item_id) {
+        return poster_response(cached.bytes, &cached.content_type);
     }
 
     let config = match Config::load() {
@@ -36,7 +41,7 @@ pub async fn serve_poster(
         server_cfg.api_key.clone(),
         server_cfg.is_emby,
     );
-    // MaxWidth keeps thumbnails small; Emby/Jellyfin return Primary art for the item.
+    // Primary = library cover/poster art (not a live screenshot).
     let path = format!("/Items/{}/Images/Primary?maxWidth=120&quality=80", item_id);
     let url = client.url_path(&path);
     let builder = client.add_auth_headers(client.client.get(&url));
@@ -57,24 +62,21 @@ pub async fn serve_poster(
                 .and_then(|h| h.to_str().ok())
                 .unwrap_or("image/jpeg")
                 .to_string();
-            // Only proxy real image payloads (avoid HTML error pages as "images").
             let is_image = content_type.starts_with("image/");
             if let Ok(bytes) = resp.bytes().await {
-                if bytes.len() as u64 > MAX_POSTER_BYTES {
+                if bytes.len() as u64 > MAX_POSTER_BYTES || !is_image || bytes.is_empty() {
                     return not_found("No poster");
                 }
-                if is_image && !bytes.is_empty() {
-                    let mut res = Response::new(Body::from(bytes));
-                    if let Ok(val) = axum::http::HeaderValue::from_str(&content_type) {
-                        res.headers_mut()
-                            .insert(axum::http::header::CONTENT_TYPE, val);
-                    }
-                    res.headers_mut().insert(
-                        axum::http::header::CACHE_CONTROL,
-                        axum::http::HeaderValue::from_static("private, max-age=300"),
-                    );
-                    return res;
-                }
+                let bytes = bytes.to_vec();
+                poster_cache::put(
+                    &server_name,
+                    &item_id,
+                    CachedPoster {
+                        bytes: bytes.clone(),
+                        content_type: content_type.clone(),
+                    },
+                );
+                return poster_response(bytes, &content_type);
             }
         }
         Ok(Err(_)) | Err(_) => {}
@@ -83,6 +85,20 @@ pub async fn serve_poster(
         .status(StatusCode::NOT_FOUND)
         .body(Body::empty())
         .unwrap_or_else(|_| internal_error())
+}
+
+fn poster_response(bytes: Vec<u8>, content_type: &str) -> Response {
+    let mut res = Response::new(Body::from(bytes));
+    if let Ok(val) = axum::http::HeaderValue::from_str(content_type) {
+        res.headers_mut()
+            .insert(axum::http::header::CONTENT_TYPE, val);
+    }
+    // Stable per item_id — browser should keep it without revalidation noise.
+    res.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, max-age=86400, immutable"),
+    );
+    res
 }
 
 fn bad_request() -> Response {

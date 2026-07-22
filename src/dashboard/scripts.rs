@@ -29,21 +29,50 @@ function serverStatusClass(raw) {
   if (s === 'Error') return 'status-failed';
   return 'status-pending';
 }
-/** Load a now-playing poster. Prefer direct same-origin src (CSP-safe). */
-async function loadPoster(url, img) {
+/** Poster art from /api/poster (Primary cover). Fetch once; reuse object URL. */
+const _posterObjectUrls = Object.create(null);
+const _posterInflight = Object.create(null);
+function loadPoster(url, img) {
   if (!url || !img) return;
-  // Direct src works without blob: CSP and avoids silent failures on re-render.
+  img.className = (img.className ? img.className + ' ' : '') + 'poster-thumb';
+  img.alt = img.alt || '';
   img.onerror = () => {
     img.style.display = 'none';
-    if (img.parentNode) {
+    if (img.parentNode && !img.parentNode.querySelector('.poster-missing')) {
       const ph = document.createElement('div');
       ph.className = 'poster-missing';
       ph.title = 'Poster unavailable';
       img.parentNode.insertBefore(ph, img);
     }
   };
-  img.src = url;
-  img.className = (img.className ? img.className + ' ' : '') + 'poster-thumb';
+  // Already decoded for this URL — keep the same bytes in the img (no flicker).
+  if (_posterObjectUrls[url]) {
+    if (img.src !== _posterObjectUrls[url]) img.src = _posterObjectUrls[url];
+    return;
+  }
+  if (img.dataset.posterUrl === url && img.src) return;
+  img.dataset.posterUrl = url;
+  const assign = (objectUrl) => {
+    if (img.dataset.posterUrl === url) img.src = objectUrl;
+  };
+  if (_posterInflight[url]) {
+    _posterInflight[url].then(assign).catch(() => { img.src = url; });
+    return;
+  }
+  _posterInflight[url] = fetch(url)
+    .then(r => { if (!r.ok) throw new Error('poster'); return r.blob(); })
+    .then(blob => {
+      const objectUrl = URL.createObjectURL(blob);
+      _posterObjectUrls[url] = objectUrl;
+      delete _posterInflight[url];
+      return objectUrl;
+    })
+    .catch(() => {
+      delete _posterInflight[url];
+      // Fall back to direct URL (browser HTTP cache / server cache).
+      return url;
+    });
+  _posterInflight[url].then(assign);
 }
 /** Keep only scheme://host:port — strip /web/…, #!, query strings. */
 function normalizeServerUrl(url) {

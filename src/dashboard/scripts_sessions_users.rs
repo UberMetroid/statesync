@@ -1,47 +1,111 @@
 //! Now-playing and mapped users rendering.
+//! Session rows are updated in place so posters are not torn down every poll.
 
 pub const JS_SESSIONS_USERS: &str = r#"const activeDiv = $('activeSessions');
-    if (status.active_sessions && status.active_sessions.length > 0) {
-      activeDiv.textContent = '';
-      status.active_sessions.forEach(sess => {
-        const mins = Math.floor(sess.position / 60); const secs = Math.floor(sess.position % 60).toString().padStart(2, '0');
-        const durationStr = mins + ':' + secs;
-        const row = document.createElement('div'); row.className = 'server-row';
-        const left = document.createElement('div'); left.className = 'server-info';
-        if (sess.poster_url) {
-          const img = document.createElement('img');
-          img.alt = sess.item || '';
-          img.className = 'poster-thumb';
-          img.loading = 'lazy';
-          loadPoster(sess.poster_url, img);
-          left.appendChild(img);
-        } else {
-          const ph = document.createElement('div');
-          ph.className = 'poster-missing';
-          left.appendChild(ph);
-        }
-        const meta = document.createElement('div'); meta.className = 'server-meta';
-        const itemEl = document.createElement('div'); itemEl.className = 'name'; itemEl.textContent = sess.item;
-        const userEl = document.createElement('div'); userEl.className = 'url';
-        userEl.textContent = sess.is_paused
-          ? (sess.user + ' paused on ' + sess.server + ' at ' + durationStr)
-          : (sess.user + ' watching on ' + sess.server);
-        meta.appendChild(itemEl); meta.appendChild(userEl);
-        left.appendChild(meta);
-        const right = document.createElement('div'); right.style.cssText = 'display:flex;align-items:center;gap:8px';
-        const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = durationStr;
-        right.appendChild(badge);
-        if (sess.is_paused) {
-          const p = document.createElement('span'); p.className = 'badge'; p.textContent = 'Paused';
-          right.appendChild(p);
-        }
-        row.appendChild(left); row.appendChild(right);
-        activeDiv.appendChild(row);
-      });
+    const sessions = (status.active_sessions && status.active_sessions.length)
+      ? status.active_sessions : [];
+    if (sessions.length === 0) {
+      if (activeDiv.dataset.mode !== 'empty') {
+        activeDiv.textContent = '';
+        const empty = document.createElement('div'); empty.className = 'empty';
+        empty.textContent = 'No one is playing anything right now.';
+        activeDiv.appendChild(empty);
+        activeDiv.dataset.mode = 'empty';
+      }
     } else {
-      activeDiv.textContent = '';
-      const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'No one is playing anything right now.';
-      activeDiv.appendChild(empty);
+      activeDiv.dataset.mode = 'list';
+      // Drop empty-state placeholder if present.
+      if (activeDiv.querySelector('.empty') && !activeDiv.querySelector('[data-sk]')) {
+        activeDiv.textContent = '';
+      }
+      const seen = {};
+      sessions.forEach(sess => {
+        const key = String(sess.server || '') + '|' + String(sess.user || '');
+        seen[key] = true;
+        const mins = Math.floor(sess.position / 60);
+        const secs = Math.floor(sess.position % 60).toString().padStart(2, '0');
+        const durationStr = mins + ':' + secs;
+        let row = activeDiv.querySelector('[data-sk="' + CSS.escape(key) + '"]');
+        if (!row) {
+          row = document.createElement('div');
+          row.className = 'server-row';
+          row.setAttribute('data-sk', key);
+          const left = document.createElement('div'); left.className = 'server-info';
+          left.setAttribute('data-left', '1');
+          if (sess.poster_url) {
+            const img = document.createElement('img');
+            img.alt = sess.item || '';
+            img.className = 'poster-thumb';
+            img.loading = 'lazy';
+            img.setAttribute('data-poster', '1');
+            loadPoster(sess.poster_url, img);
+            left.appendChild(img);
+          } else {
+            const ph = document.createElement('div');
+            ph.className = 'poster-missing';
+            left.appendChild(ph);
+          }
+          const meta = document.createElement('div'); meta.className = 'server-meta';
+          const itemEl = document.createElement('div'); itemEl.className = 'name';
+          itemEl.setAttribute('data-item', '1');
+          itemEl.textContent = sess.item;
+          const userEl = document.createElement('div'); userEl.className = 'url';
+          userEl.setAttribute('data-userline', '1');
+          meta.appendChild(itemEl); meta.appendChild(userEl);
+          left.appendChild(meta);
+          const right = document.createElement('div');
+          right.style.cssText = 'display:flex;align-items:center;gap:8px';
+          right.setAttribute('data-right', '1');
+          const badge = document.createElement('span'); badge.className = 'badge';
+          badge.setAttribute('data-pos', '1');
+          right.appendChild(badge);
+          row.appendChild(left); row.appendChild(right);
+          activeDiv.appendChild(row);
+        }
+        // Update text only — never rebuild the <img> if poster URL is unchanged.
+        const itemEl = row.querySelector('[data-item]');
+        if (itemEl && itemEl.textContent !== sess.item) itemEl.textContent = sess.item;
+        const userEl = row.querySelector('[data-userline]');
+        if (userEl) {
+          const line = sess.is_paused
+            ? (sess.user + ' paused on ' + sess.server + ' at ' + durationStr)
+            : (sess.user + ' watching on ' + sess.server);
+          if (userEl.textContent !== line) userEl.textContent = line;
+        }
+        const badge = row.querySelector('[data-pos]');
+        if (badge && badge.textContent !== durationStr) badge.textContent = durationStr;
+        let pausedBadge = row.querySelector('[data-paused]');
+        if (sess.is_paused) {
+          if (!pausedBadge) {
+            pausedBadge = document.createElement('span');
+            pausedBadge.className = 'badge';
+            pausedBadge.setAttribute('data-paused', '1');
+            pausedBadge.textContent = 'Paused';
+            const right = row.querySelector('[data-right]');
+            if (right) right.appendChild(pausedBadge);
+          }
+        } else if (pausedBadge) {
+          pausedBadge.remove();
+        }
+        const img = row.querySelector('img[data-poster]');
+        if (img && sess.poster_url && img.dataset.posterUrl !== sess.poster_url
+            && !_posterObjectUrls[sess.poster_url]) {
+          // Title changed for this user — load the new Primary art once.
+          loadPoster(sess.poster_url, img);
+        } else if (img && sess.poster_url && _posterObjectUrls[sess.poster_url]
+            && img.src !== _posterObjectUrls[sess.poster_url]) {
+          img.src = _posterObjectUrls[sess.poster_url];
+          img.dataset.posterUrl = sess.poster_url;
+        } else if (img && sess.poster_url && img.dataset.posterUrl !== sess.poster_url) {
+          loadPoster(sess.poster_url, img);
+        }
+        if (img && sess.item) img.alt = sess.item;
+      });
+      // Remove rows for users who stopped playing.
+      Array.from(activeDiv.querySelectorAll('[data-sk]')).forEach(row => {
+        const k = row.getAttribute('data-sk');
+        if (k && !seen[k]) row.remove();
+      });
     }
     const usersDiv = $('syncedUsers');
     if (!status.servers || status.servers.length === 0) {

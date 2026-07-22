@@ -3,6 +3,7 @@
 pub mod config;
 pub mod connection_test;
 pub mod force_api;
+pub mod poster_cache;
 pub mod poster_proxy;
 pub mod server;
 pub mod server_info;
