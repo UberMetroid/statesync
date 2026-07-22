@@ -138,10 +138,22 @@ pub const JS_SESSIONS_USERS: &str = r#"const activeDiv = $('activeSessions');
       grid.style.cssText = 'display:grid;grid-template-columns:repeat(' + serverCount + ', 1fr);gap:6px;align-items:center';
       const headerRow2 = document.createElement('div');
       headerRow2.style.cssText = 'display:contents';
-      status.servers.forEach(srv => {
+      status.servers.forEach((srv, si) => {
         const h = document.createElement('div');
-        h.style.cssText = 'text-align:center;color:var(--muted);font-weight:600;font-size:11px;padding-bottom:6px;border-bottom:1px solid var(--border);text-transform:uppercase';
-        h.textContent = srv.name;
+        h.style.cssText = 'text-align:center;color:var(--muted);font-weight:600;font-size:11px;padding-bottom:6px;border-bottom:1px solid var(--border);line-height:1.35';
+        const cfg = (currentConfig.servers || [])[si] || {};
+        const hostPort = srv.host_port || nameFromUrl(cfg.url || srv.url || '') || '';
+        const niceName = String(srv.name || cfg.name || '').trim();
+        const kind = (srv.is_emby === true || cfg.is_emby === true) ? 'Emby'
+          : (srv.is_emby === false || cfg.is_emby === false) ? 'Jellyfin' : '';
+        // Prefer distinct address (host:port). Show config name only when it adds info.
+        let title = hostPort || niceName || ('Server ' + (si + 1));
+        if (niceName && hostPort && niceName !== hostPort && niceName.toLowerCase() !== hostPort.toLowerCase()) {
+          title = niceName + '\n' + hostPort;
+        }
+        if (kind) title = title + (title.indexOf('\n') >= 0 ? '\n' : ' · ') + kind;
+        h.textContent = title;
+        h.title = srv.display_label || title.replace(/\n/g, ' · ');
         headerRow2.appendChild(h);
       });
       grid.appendChild(headerRow2);
@@ -153,12 +165,14 @@ pub const JS_SESSIONS_USERS: &str = r#"const activeDiv = $('activeSessions');
           const filled = u.servers.includes(i);
           cell.className = 'user-cell' + (filled ? ' filled' : ' empty') + (selected ? ' selected' : '');
           cell.style.cursor = 'pointer';
+          const srv = status.servers[i] || {};
+          const srvLabel = srv.display_label || srv.host_port || srv.name || ('server ' + (i + 1));
           if (filled) {
             cell.textContent = ignored ? (u.name + ' · ignored') : u.name;
-            cell.title = (ignored ? 'Ignored · ' : '') + 'Click to select · Actions in header';
+            cell.title = (ignored ? 'Ignored · ' : '') + srvLabel + ' · Click to select · Actions in header';
           } else {
             cell.textContent = '·';
-            cell.title = 'No linked user on ' + status.servers[i].name + ' — use Link users';
+            cell.title = 'No linked user on ' + srvLabel + ' — use Link users';
           }
           cell.addEventListener('click', () => {
             window._selectedMappedUser = u.name;

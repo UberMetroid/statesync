@@ -145,9 +145,11 @@ async function loadDashboard() {
       listDiv.appendChild(empty);
     } else {
       listDiv.textContent = '';
-      // Always list every configured server with a clear name + host:port address.
+      // Always list every configured server (index-aligned with status.servers).
       currentConfig.servers.forEach((srv, idx) => {
-        const sStatus = status.servers.find(s => s.name === srv.name) || { users_count: 0, media_count: 0, websocket_status: 'Offline' };
+        const sStatus = (status.servers && status.servers[idx])
+          || status.servers.find(s => s.name === srv.name)
+          || { users_count: 0, media_count: 0, websocket_status: 'Offline' };
         const row = document.createElement('div'); row.className = 'server-row';
         const dirBadge = srv.sync_direction === 'send' ? ' · send' : (srv.sync_direction === 'receive' ? ' · receive' : '');
         const hostPort = sStatus.host_port || nameFromUrl(srv.url) || '';
@@ -166,10 +168,8 @@ async function loadDashboard() {
         badgeEl.textContent = (srv.is_emby ? 'Emby' : 'Jellyfin') + dirBadge;
         nameEl.appendChild(badgeEl);
         const urlEl = document.createElement('div'); urlEl.className = 'url';
-        // Always show address as host:port when we can (IP or DNS + port).
-        urlEl.textContent = hostPort
-          ? (displayName === hostPort ? hostPort : hostPort)
-          : ((sStatus.url || srv.url || '').replace(/^https?:\/\//i, '').split('/')[0] || '—');
+        // Address line is always host:port when known (distinct even if names collide).
+        urlEl.textContent = hostPort || ((sStatus.url || srv.url || '').replace(/^https?:\/\//i, '').split('/')[0] || '—');
         urlEl.title = sStatus.display_label || (displayName + (hostPort ? (' · ' + hostPort) : ''));
         leftInner.appendChild(nameEl); leftInner.appendChild(urlEl);
         left.appendChild(statusSpanEl); left.appendChild(leftInner);

@@ -73,23 +73,29 @@ pub async fn get_status(
 
     let mut servers_status = Vec::new();
     let mut users_by_server = Vec::new();
-    for (i, (name, users, media_len)) in caches_data.iter().enumerate() {
+    // Caches are 1:1 with config.servers by index — never match by name alone
+    // (two hosts can look similar, e.g. same IP with/without port in the name).
+    for (i, (cache_name, users, media_len)) in caches_data.iter().enumerate() {
         let ws_status = websocket_statuses
             .get(i)
             .cloned()
             .unwrap_or_else(|| "Offline".to_string());
-        let cfg_url = config
-            .servers
-            .iter()
-            .find(|s| s.name == *name)
-            .map(|s| s.url.as_str())
-            .unwrap_or("");
+        let cfg = config.servers.get(i);
+        let cfg_name = cfg.map(|s| s.name.as_str()).unwrap_or(cache_name.as_str());
+        let cfg_url = cfg.map(|s| s.url.as_str()).unwrap_or("");
         let host_port = host_port_from_url(cfg_url);
+        let is_emby = cfg.map(|s| s.is_emby).unwrap_or(false);
         servers_status.push(json!({
-            "name": name,
-            "url": redacted_url_for(name),
+            "index": i,
+            "name": cfg_name,
+            "url": if cfg_url.is_empty() {
+                redacted_url_for(cache_name)
+            } else {
+                crate::config::redacted_url(cfg_url)
+            },
             "host_port": host_port,
-            "display_label": server_display_label(name, cfg_url),
+            "display_label": server_display_label(cfg_name, cfg_url),
+            "is_emby": is_emby,
             "users_count": users.len(),
             "media_count": media_len,
             "websocket_status": ws_status
@@ -98,7 +104,7 @@ pub async fn get_status(
         names.sort();
         users_by_server.push(json!({
             "index": i,
-            "name": name,
+            "name": cfg_name,
             "users": names,
         }));
     }
