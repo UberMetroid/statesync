@@ -52,7 +52,7 @@ fn resolve_credentials(req: &TestConnRequest) -> Result<(String, String, bool), 
         return Err("Invalid URL (must start with http:// or https://)".into());
     }
     if let Err(msg) = validate_upstream_url(&clean_url) {
-        return Err(msg);
+        return Err(msg.to_string());
     }
     if key_is_placeholder(&clean_key) {
         return Err(
