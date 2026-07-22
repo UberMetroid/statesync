@@ -24,12 +24,16 @@ pub async fn serve_poster(
     }
 
     if let Some(cached) = poster_cache::get(&server_name, &item_id) {
+        tracing::debug!(server = %server_name, item_id = %item_id, "poster cache hit");
         return poster_response(cached.bytes, &cached.content_type);
     }
 
     let config = match Config::load() {
         Ok(cfg) => cfg,
-        Err(_) => return internal_error(),
+        Err(e) => {
+            tracing::error!(error = %e, "poster: failed to load config");
+            return internal_error();
+        }
     };
     let server_cfg = match config.servers.iter().find(|s| s.name == server_name) {
         Some(s) => s,
@@ -76,10 +80,16 @@ pub async fn serve_poster(
                         content_type: content_type.clone(),
                     },
                 );
+                tracing::debug!(server = %server_name, item_id = %item_id, "poster cached from upstream");
                 return poster_response(bytes, &content_type);
             }
         }
-        Ok(Err(_)) | Err(_) => {}
+        Ok(Err(e)) => {
+            tracing::warn!(server = %server_name, item_id = %item_id, error = %e, "poster upstream request failed");
+        }
+        Err(_) => {
+            tracing::warn!(server = %server_name, item_id = %item_id, "poster upstream timeout");
+        }
     }
     Response::builder()
         .status(StatusCode::NOT_FOUND)

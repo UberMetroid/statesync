@@ -44,7 +44,7 @@ pub fn normalize_server_url(url: &str) -> String {
 }
 
 /// Keep only `scheme://host[:port]` (strip path after the authority).
-fn origin_only(url: &str) -> String {
+pub(crate) fn origin_only(url: &str) -> String {
     let Some((scheme, rest)) = url.split_once("://") else {
         return url.trim_end_matches('/').to_string();
     };

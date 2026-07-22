@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+mod helper_unit_tests;
 pub mod helpers;
 pub mod loader;
 #[cfg(test)]
@@ -11,7 +13,7 @@ pub use helpers::{name_from_url, normalize_server_url, redacted_url};
 pub use loader::{
     default_config, get_config_path, load_or_create_default, write_default_config_to_disk,
 };
-pub use url_safety::{valid_server_url, validate_upstream_url};
+pub use url_safety::{extract_host, valid_server_url, validate_upstream_url};
 pub use validation::{is_loopback_bind, normalize_config, validate_config};
 
 pub const MAX_NAME_LEN: usize = 64;

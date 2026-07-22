@@ -36,8 +36,6 @@ pub async fn process_played_items_batch(
             break;
         }
         let started_item = Instant::now();
-        let _permit = semaphore.acquire().await;
-
         let imdb = item.imdb_id.clone().unwrap_or_default();
         let tmdb = item.tmdb_id.clone().unwrap_or_default();
         if imdb.is_empty() && tmdb.is_empty() {
@@ -47,6 +45,8 @@ pub async fn process_played_items_batch(
             status.skip_reasons.no_provider += 1;
             continue;
         }
+        // Hold concurrency slot only for network work — not for rate-limit sleep.
+        let permit = semaphore.acquire().await;
         let resolved = target_client
             .find_item_by_provider(tgt_user_id, &imdb, &tmdb)
             .await
@@ -55,6 +55,7 @@ pub async fn process_played_items_batch(
         let target_item_id = match resolved {
             Some((id, _i, _t)) => id,
             None => {
+                drop(permit);
                 *skipped_total += 1;
                 *processed_total += 1;
                 status.by_field.played.skip += 1;
@@ -70,6 +71,7 @@ pub async fn process_played_items_batch(
         };
         let write_played = if force_played { Some(true) } else { None };
         if write_pos.is_none() && write_played.is_none() {
+            drop(permit);
             *skipped_total += 1;
             *processed_total += 1;
             status.skip_reasons.other += 1;
@@ -85,6 +87,7 @@ pub async fn process_played_items_batch(
                 source_pos,
                 &tgt_ud,
             ) {
+                drop(permit);
                 // No write → do not apply min_interval sleep (would stall large equal libraries).
                 *skipped_total += 1;
                 *processed_total += 1;
@@ -185,6 +188,7 @@ pub async fn process_played_items_batch(
                 status.by_field.played.fail += 1;
             }
         }
+        drop(permit);
         let elapsed = started_item.elapsed();
         if elapsed < min_interval {
             tokio::time::sleep(min_interval - elapsed).await;

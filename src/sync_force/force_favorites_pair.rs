@@ -93,7 +93,6 @@ pub async fn force_sync_favorites_pair(
                 break;
             }
             let started_item = Instant::now();
-            let _permit = semaphore.acquire().await;
             let imdb = item.imdb_id.clone().unwrap_or_default();
             let tmdb = item.tmdb_id.clone().unwrap_or_default();
             if imdb.is_empty() && tmdb.is_empty() {
@@ -103,6 +102,7 @@ pub async fn force_sync_favorites_pair(
                 status.skip_reasons.no_provider += 1;
                 continue;
             }
+            let permit = semaphore.acquire().await;
             let resolved = target_client
                 .find_item_by_provider(tgt_user_id, &imdb, &tmdb)
                 .await
@@ -111,6 +111,7 @@ pub async fn force_sync_favorites_pair(
             let target_item_id = match resolved {
                 Some((id, _i, _t)) => id,
                 None => {
+                    drop(permit);
                     *skipped_total += 1;
                     *processed_total += 1;
                     status.by_field.favorite.skip += 1;
@@ -124,6 +125,7 @@ pub async fn force_sync_favorites_pair(
                 .await
             {
                 if tgt_ud.is_favorite == Some(true) {
+                    drop(permit);
                     // No write → skip min_interval pacing (equal libraries must not stall).
                     *skipped_total += 1;
                     *processed_total += 1;
@@ -221,6 +223,7 @@ pub async fn force_sync_favorites_pair(
                     status.by_field.favorite.fail += 1;
                 }
             }
+            drop(permit);
             let elapsed = started_item.elapsed();
             if elapsed < min_interval {
                 tokio::time::sleep(min_interval - elapsed).await;

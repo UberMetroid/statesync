@@ -43,12 +43,14 @@ impl MediaClient {
                 "STATESYNC_ACCEPT_INVALID_CERTS is enabled; TLS certificate verification is disabled for upstream servers"
             );
         }
+        // Do not follow redirects: a 3xx to link-local/metadata would bypass URL SSRF checks.
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .pool_idle_timeout(Duration::from_secs(60))
             .tcp_keepalive(Duration::from_secs(60))
             .tcp_nodelay(true)
+            .redirect(reqwest::redirect::Policy::none())
             .danger_accept_invalid_certs(accept_invalid)
             .build()
             .unwrap_or_else(|_| Client::new());

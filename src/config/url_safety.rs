@@ -41,7 +41,7 @@ pub fn extract_host(url: &str) -> Option<String> {
     if host.is_empty() { None } else { Some(host) }
 }
 
-fn ipv4_octets(host: &str) -> Option<[u8; 4]> {
+pub(crate) fn ipv4_octets(host: &str) -> Option<[u8; 4]> {
     // Dotted decimal
     let parts: Vec<&str> = host.split('.').collect();
     if parts.len() == 4 {
@@ -80,7 +80,7 @@ fn ipv4_octets(host: &str) -> Option<[u8; 4]> {
     None
 }
 
-fn is_cloud_metadata_host(host: &str) -> bool {
+pub(crate) fn is_cloud_metadata_host(host: &str) -> bool {
     let host_l = host.to_lowercase();
     if host_l == "metadata.google.internal"
         || host_l == "metadata"

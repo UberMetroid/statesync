@@ -1,7 +1,9 @@
 [package]
 name = "statesync"
-version = "0.28.61"
+version = "0.28.62"
 edition = "2024"
+license = "Apache-2.0"
+readme = "README.md"
 
 [dependencies]
 tokio = { version = "1", features = ["full", "signal"] }
@@ -23,3 +25,4 @@ shared-core = { git = "https://github.com/studio2201/shared-assets.git", tag = "
 tower = { version = "0.5", features = ["util"] }
 mockito = "1.5"
 tempfile = "3"
+proptest = "1.6"
