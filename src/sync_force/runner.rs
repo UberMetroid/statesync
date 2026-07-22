@@ -39,7 +39,11 @@ pub async fn run_force_sync(ctx: ForceContext) -> ForceSyncStatus {
         scope.push(format!("user={}", u));
     }
     {
-        let mut status = ctx.tracker.status.lock().await;
+        let mut status = ctx
+            .tracker
+            .status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *status = ForceSyncStatus {
             state: ForceSyncState::Running,
             started_at: Some(started.to_rfc3339()),
@@ -96,7 +100,11 @@ pub async fn run_force_sync(ctx: ForceContext) -> ForceSyncStatus {
         *running = false;
     }
 
-    let mut status = ctx.tracker.status.lock().await;
+    let mut status = ctx
+        .tracker
+        .status
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     *status = result.clone();
     // Don't persist dry-run results as last_full_sync (would mislead "last force").
     if !result.dry_run {

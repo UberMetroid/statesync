@@ -18,7 +18,18 @@ pub(super) async fn run_force_sync_inner(
             .await;
 
     let mut total_items = 0u64;
-    for (src_idx, _, _, src_user_id, _) in &pairs {
+    for (src_idx, _, src_username, src_user_id, _) in &pairs {
+        // Publish heartbeat while counting so the bar is not frozen at 0%.
+        {
+            let mut st = ctx
+                .tracker
+                .status
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            st.phase = Some("preparing".to_string());
+            st.current_user = Some(format!("counting · {}", src_username));
+            st.total_pairs = total_items.max(pairs.len() as u64);
+        }
         let source_client = ctx.clients[*src_idx].clone();
         if config.sync.force_played || config.sync.force_position {
             if let Ok(count) = source_client.get_user_played_items_count(src_user_id).await {
@@ -36,13 +47,18 @@ pub(super) async fn run_force_sync_inner(
     }
 
     {
-        let mut status = ctx.tracker.status.lock().await;
+        let mut status = ctx
+            .tracker
+            .status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         status.total_pairs = if total_items > 0 {
             total_items
         } else {
             pairs.len() as u64
         };
         status.phase = Some("preparing".to_string());
+        status.current_user = None;
     }
 
     info!(
@@ -60,7 +76,7 @@ pub(super) async fn run_force_sync_inner(
         Duration::from_micros(((1_000_000.0_f64 / rate as f64).round() as u64).max(1));
     let semaphore = Semaphore::new(rate.min(8) as usize);
 
-    let mut status = ctx.tracker.status.lock().await.clone();
+    let mut status = ctx.tracker.snapshot_status();
     let mut processed_total: u64 = 0;
     let mut succeeded_total: u64 = 0;
     let mut skipped_total: u64 = 0;

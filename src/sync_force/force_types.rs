@@ -167,7 +167,9 @@ pub struct SyncForceTracker {
     pub force_sync_in_progress: AtomicBool,
     pub running: Mutex<bool>,
     pub cancel: AtomicBool,
-    pub status: Mutex<ForceSyncStatus>,
+    /// std mutex: progress is written from the force loop and read by HTTP polls.
+    /// tokio::Mutex + try_lock previously dropped updates while the API held the lock.
+    pub status: std::sync::Mutex<ForceSyncStatus>,
 }
 
 impl Default for SyncForceTracker {
@@ -176,7 +178,7 @@ impl Default for SyncForceTracker {
             force_sync_in_progress: AtomicBool::new(false),
             running: Mutex::new(false),
             cancel: AtomicBool::new(false),
-            status: Mutex::new(ForceSyncStatus::idle()),
+            status: std::sync::Mutex::new(ForceSyncStatus::idle()),
         }
     }
 }

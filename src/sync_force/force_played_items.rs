@@ -1,5 +1,5 @@
 use super::force_constants::FORCE_UPDATE_TIMEOUT;
-use super::helpers::write_status_throttled;
+use super::helpers::publish_counts;
 use super::{ForceContext, ForceSyncError, ForceSyncStatus, push_error};
 use crate::client::PlayedItem;
 use crate::state::SyncHistoryValue;
@@ -43,6 +43,16 @@ pub async fn process_played_items_batch(
             *processed_total += 1;
             status.by_field.played.skip += 1;
             status.skip_reasons.no_provider += 1;
+            publish_counts(
+                &ctx.tracker,
+                status,
+                *processed_total,
+                *succeeded_total,
+                *skipped_total,
+                *failed_total,
+                last_status_write,
+                false,
+            );
             continue;
         }
         // Hold concurrency slot only for network work — not for rate-limit sleep.
@@ -60,6 +70,16 @@ pub async fn process_played_items_batch(
                 *processed_total += 1;
                 status.by_field.played.skip += 1;
                 status.skip_reasons.no_match += 1;
+                publish_counts(
+                    &ctx.tracker,
+                    status,
+                    *processed_total,
+                    *succeeded_total,
+                    *skipped_total,
+                    *failed_total,
+                    last_status_write,
+                    false,
+                );
                 continue;
             }
         };
@@ -75,6 +95,16 @@ pub async fn process_played_items_batch(
             *skipped_total += 1;
             *processed_total += 1;
             status.skip_reasons.other += 1;
+            publish_counts(
+                &ctx.tracker,
+                status,
+                *processed_total,
+                *succeeded_total,
+                *skipped_total,
+                *failed_total,
+                last_status_write,
+                false,
+            );
             continue;
         }
         if let Ok(tgt_ud) = target_client
@@ -93,11 +123,16 @@ pub async fn process_played_items_batch(
                 *processed_total += 1;
                 status.by_field.played.skip += 1;
                 status.skip_reasons.already_equal += 1;
-                status.processed = *processed_total;
-                status.succeeded = *succeeded_total;
-                status.skipped = *skipped_total;
-                status.failed = *failed_total;
-                write_status_throttled(&ctx.tracker, status, last_status_write, false);
+                publish_counts(
+                    &ctx.tracker,
+                    status,
+                    *processed_total,
+                    *succeeded_total,
+                    *skipped_total,
+                    *failed_total,
+                    last_status_write,
+                    false,
+                );
                 continue;
             }
         }
@@ -193,10 +228,15 @@ pub async fn process_played_items_batch(
         if elapsed < min_interval {
             tokio::time::sleep(min_interval - elapsed).await;
         }
-        status.processed = *processed_total;
-        status.succeeded = *succeeded_total;
-        status.skipped = *skipped_total;
-        status.failed = *failed_total;
-        write_status_throttled(&ctx.tracker, status, last_status_write, false);
+        publish_counts(
+            &ctx.tracker,
+            status,
+            *processed_total,
+            *succeeded_total,
+            *skipped_total,
+            *failed_total,
+            last_status_write,
+            false,
+        );
     }
 }

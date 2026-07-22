@@ -1,4 +1,4 @@
-use super::helpers::write_status_throttled;
+use super::helpers::publish_counts;
 use super::{ForceContext, ForceSyncError, ForceSyncStatus, push_error, write_status};
 use crate::client::PlayedItem;
 use crate::state::SyncHistoryValue;
@@ -100,6 +100,16 @@ pub async fn force_sync_favorites_pair(
                 *processed_total += 1;
                 status.by_field.favorite.skip += 1;
                 status.skip_reasons.no_provider += 1;
+                publish_counts(
+                    &ctx.tracker,
+                    status,
+                    *processed_total,
+                    *succeeded_total,
+                    *skipped_total,
+                    *failed_total,
+                    &mut last_status_write,
+                    false,
+                );
                 continue;
             }
             let permit = semaphore.acquire().await;
@@ -116,6 +126,16 @@ pub async fn force_sync_favorites_pair(
                     *processed_total += 1;
                     status.by_field.favorite.skip += 1;
                     status.skip_reasons.no_match += 1;
+                    publish_counts(
+                        &ctx.tracker,
+                        status,
+                        *processed_total,
+                        *succeeded_total,
+                        *skipped_total,
+                        *failed_total,
+                        &mut last_status_write,
+                        false,
+                    );
                     continue;
                 }
             };
@@ -131,11 +151,16 @@ pub async fn force_sync_favorites_pair(
                     *processed_total += 1;
                     status.by_field.favorite.skip += 1;
                     status.skip_reasons.already_equal += 1;
-                    status.processed = *processed_total;
-                    status.succeeded = *succeeded_total;
-                    status.skipped = *skipped_total;
-                    status.failed = *failed_total;
-                    write_status_throttled(&ctx.tracker, status, &mut last_status_write, false);
+                    publish_counts(
+                        &ctx.tracker,
+                        status,
+                        *processed_total,
+                        *succeeded_total,
+                        *skipped_total,
+                        *failed_total,
+                        &mut last_status_write,
+                        false,
+                    );
                     continue;
                 }
             }
@@ -228,11 +253,16 @@ pub async fn force_sync_favorites_pair(
             if elapsed < min_interval {
                 tokio::time::sleep(min_interval - elapsed).await;
             }
-            status.processed = *processed_total;
-            status.succeeded = *succeeded_total;
-            status.skipped = *skipped_total;
-            status.failed = *failed_total;
-            write_status_throttled(&ctx.tracker, status, &mut last_status_write, false);
+            publish_counts(
+                &ctx.tracker,
+                status,
+                *processed_total,
+                *succeeded_total,
+                *skipped_total,
+                *failed_total,
+                &mut last_status_write,
+                false,
+            );
         }
         if cancelled {
             break;

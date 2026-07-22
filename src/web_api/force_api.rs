@@ -140,7 +140,7 @@ pub async fn post_sync_force(
     tokio::spawn(async move {
         let _ = crate::sync_force::run_force_sync(ctx).await;
     });
-    let initial = tracker_for_status.status.lock().await.clone();
+    let initial = tracker_for_status.snapshot_status();
     Response::builder()
         .status(StatusCode::ACCEPTED)
         .body(Body::from(
@@ -161,8 +161,7 @@ pub async fn get_sync_force_status(
         let st = state.app_state.lock().await;
         st.sync_force.clone()
     };
-    let status = tracker.status.lock().await.clone();
-    Json(status)
+    Json(tracker.snapshot_status())
 }
 
 pub async fn post_sync_force_cancel(Extension(state): Extension<Arc<WebServerState>>) -> Response {

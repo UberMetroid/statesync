@@ -150,6 +150,11 @@ function applyForceSyncLiveUi(fs) {
   if (!live || !fs) return;
   const totalPairs = fs.total_pairs || 0;
   const processed = fs.processed || 0;
+  const succeeded = fs.succeeded || 0;
+  const skipped = fs.skipped || 0;
+  const failed = fs.failed || 0;
+  const phase = String(fs.phase || '').toLowerCase();
+  const preparing = phase === 'preparing' || (processed === 0 && !fs.finished_at && totalPairs === 0);
   const pct = totalPairs > 0 ? Math.min(100, Math.floor(processed / totalPairs * 100)) : 0;
   const startedMs = fs.started_at ? new Date(fs.started_at).getTime() : Date.now();
   const elapsed = Math.max(0, Math.round((Date.now() - startedMs) / 1000));
@@ -165,20 +170,40 @@ function applyForceSyncLiveUi(fs) {
     else title.textContent = (dry ? 'Force preview · ' : 'Force sync · ') + forcePhaseLabel(fs.phase);
   }
   const bar = $('fsProgressBar');
-  if (bar) { bar.value = done && totalPairs === 0 ? 100 : pct; bar.max = 100; }
+  if (bar) {
+    // Keep bar alive during prepare / early work so it does not look frozen at 0.
+    if (done) bar.value = 100;
+    else if (preparing) bar.value = Math.min(8, 2 + (elapsed % 6));
+    else if (totalPairs > 0) bar.value = Math.max(pct, processed > 0 ? 1 : 0);
+    else bar.value = Math.min(95, processed > 0 ? 5 + (processed % 90) : (elapsed % 10));
+    bar.max = 100;
+  }
   const txt = $('fsProgressText');
   if (txt) {
-    txt.textContent = totalPairs > 0
-      ? (pct + '% · ' + processed + ' / ' + totalPairs + ' · ' + rate + '/s')
-      : (processed + ' items · ' + (done ? 'done' : 'starting…'));
+    if (preparing && !done) {
+      txt.textContent = 'counting libraries · ' + elapsed + 's elapsed (this can take a minute)';
+    } else if (totalPairs > 0) {
+      txt.textContent = pct + '% · looked at ' + processed + ' / ~' + totalPairs
+        + ' · pushed ' + succeeded + ' · skipped ' + skipped
+        + (failed ? ' · failed ' + failed : '')
+        + ' · ' + rate + '/s · ' + elapsed + 's';
+    } else {
+      txt.textContent = 'looked at ' + processed + ' · pushed ' + succeeded + ' · skipped ' + skipped
+        + (failed ? ' · failed ' + failed : '')
+        + ' · ' + rate + '/s · ' + elapsed + 's'
+        + (done ? '' : ' · working…');
+    }
   }
   const cu = $('fsCurrentUser');
   if (cu) {
-    const phase = String(fs.phase || '').toLowerCase();
     if (fs.current_user) {
-      cu.textContent = (phase === 'favorites' ? 'Favorites for: ' : 'Working on user: ') + fs.current_user;
-    } else if (phase === 'preparing' || processed === 0) {
-      cu.textContent = 'Building user pairs and loading history…';
+      if (String(fs.current_user).indexOf('counting') === 0) {
+        cu.textContent = fs.current_user + ' — still preparing, not stuck';
+      } else {
+        cu.textContent = (phase === 'favorites' ? 'Favorites for: ' : 'Working on user: ') + fs.current_user;
+      }
+    } else if (phase === 'preparing' || (processed === 0 && !done)) {
+      cu.textContent = 'Building pairs and counting watched history on each server…';
     } else if (phase === 'favorites') {
       cu.textContent = 'Copying hearts across servers…';
     } else if (phase === 'played') {

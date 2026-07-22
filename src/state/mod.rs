@@ -62,7 +62,7 @@ impl AppState {
         let tracker = SyncForceTracker::default();
         if let Ok(config) = crate::config::Config::load() {
             if let Some(fs) = config.last_full_sync {
-                if let Ok(mut status) = tracker.status.try_lock() {
+                if let Ok(mut status) = tracker.status.lock() {
                     *status = fs;
                 }
             }

@@ -123,7 +123,7 @@ pub async fn run_sync_force_cli(args: &[String]) -> anyhow::Result<()> {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(2)).await;
-                let status = tracker.status.lock().await.clone();
+                let status = tracker.snapshot_status();
                 if status.state != ForceSyncState::Running {
                     break;
                 }

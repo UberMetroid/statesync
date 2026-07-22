@@ -20,7 +20,7 @@ pub use runner::run_force_sync;
 
 /// Snapshot force-sync status for CLI/API.
 pub async fn snapshot_status(tracker: &SyncForceTracker) -> ForceSyncStatus {
-    tracker.status.lock().await.clone()
+    tracker.snapshot_status()
 }
 
 /// Request cancel of an in-progress force sync.

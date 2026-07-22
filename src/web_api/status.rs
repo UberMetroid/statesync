@@ -69,7 +69,7 @@ pub async fn get_status(
         )
     };
 
-    let tracker_status = sync_force.status.lock().await.clone();
+    let tracker_status = sync_force.snapshot_status();
 
     let mut servers_status = Vec::new();
     let mut users_by_server = Vec::new();

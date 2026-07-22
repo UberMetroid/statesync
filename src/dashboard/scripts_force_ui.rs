@@ -114,7 +114,7 @@ async function pollForceSync() {
     if (st === 'running' || (s.started_at && !s.finished_at && st !== 'completed' && st !== 'failed' && st !== 'idle')) {
       window._forceSyncOptimistic = false;
       applyForceSyncLiveUi(s);
-      _forceSyncTimer = setTimeout(pollForceSync, 1000);
+      _forceSyncTimer = setTimeout(pollForceSync, 500);
     } else {
       window._forceSyncOptimistic = false;
       _forceSyncTimer = null;
