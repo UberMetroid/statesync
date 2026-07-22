@@ -49,10 +49,11 @@ Headers may use character / scene art. Icons may not.
 
 ### StateSync header (current)
 
-- **Active:** `assets/header.png` (2D cell-animation style; pleated skirt; not wartime)  
-- **Source archive:** `graphics/statesync_header_cell.jpg` (or latest pinup/cell masters)  
-- **Neon geometric archive:** `graphics/statesync_header_neon.jpg`  
-- Optional mascot stills stay under `assets/mascot.png` / `graphics/statesync_mascot.png` and must **not** replace the icon
+- **Active:** `assets/header.png` / `graphics/statesync_header_cell.jpg`
+  - 2D cell animation, serious expression, skin-tight jumper
+  - Emby- and Jellyfin-colored abstract devices in each hand (**no brand text**)
+- Archives: `statesync_header_neon.jpg`, `statesync_header_pinup.jpg`, older cell masters
+
 
 ## README layout (org)
 
