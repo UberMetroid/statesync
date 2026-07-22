@@ -46,6 +46,7 @@ pub fn render_dashboard() -> Markup {
                             div id="fsCurrentUser" class="form-hint" style="margin-top:6px" {}
                             div id="fsStoryExpanded" class="fs-story-expanded" style="display:none" {
                                 div id="fsStoryDetail" class="form-hint" style="margin-top:8px;line-height:1.5" {}
+                                div id="fsFailureList" class="form-hint fs-failure-list" style="margin-top:10px;display:none" {}
                             }
                         }
                         div class="fs-live-actions" {

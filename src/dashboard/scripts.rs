@@ -145,11 +145,13 @@ async function loadDashboard() {
       listDiv.appendChild(empty);
     } else {
       listDiv.textContent = '';
+      // Always list every configured server with a clear name + host:port address.
       currentConfig.servers.forEach((srv, idx) => {
         const sStatus = status.servers.find(s => s.name === srv.name) || { users_count: 0, media_count: 0, websocket_status: 'Offline' };
         const row = document.createElement('div'); row.className = 'server-row';
         const dirBadge = srv.sync_direction === 'send' ? ' · send' : (srv.sync_direction === 'receive' ? ' · receive' : '');
-        const urlText = (status.servers.find(s => s.name === srv.name) || {}).url || srv.url;
+        const hostPort = sStatus.host_port || nameFromUrl(srv.url) || '';
+        const displayName = (srv.name && String(srv.name).trim()) ? String(srv.name).trim() : (hostPort || 'server');
 
         const left = document.createElement('div'); left.className = 'server-info';
         const statusSpanEl = document.createElement('span');
@@ -159,11 +161,16 @@ async function loadDashboard() {
         statusSpanEl.title = 'Raw: ' + rawWs;
         const leftInner = document.createElement('div'); leftInner.className = 'server-meta';
         const nameEl = document.createElement('div'); nameEl.className = 'name';
-        nameEl.textContent = (srv.name || nameFromUrl(srv.url)) + ' ';
+        nameEl.textContent = displayName + ' ';
         const badgeEl = document.createElement('span'); badgeEl.className = 'badge';
         badgeEl.textContent = (srv.is_emby ? 'Emby' : 'Jellyfin') + dirBadge;
         nameEl.appendChild(badgeEl);
-        const urlEl = document.createElement('div'); urlEl.className = 'url'; urlEl.textContent = urlText;
+        const urlEl = document.createElement('div'); urlEl.className = 'url';
+        // Always show address as host:port when we can (IP or DNS + port).
+        urlEl.textContent = hostPort
+          ? (displayName === hostPort ? hostPort : hostPort)
+          : ((sStatus.url || srv.url || '').replace(/^https?:\/\//i, '').split('/')[0] || '—');
+        urlEl.title = sStatus.display_label || (displayName + (hostPort ? (' · ' + hostPort) : ''));
         leftInner.appendChild(nameEl); leftInner.appendChild(urlEl);
         left.appendChild(statusSpanEl); left.appendChild(leftInner);
 

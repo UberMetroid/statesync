@@ -72,6 +72,28 @@ pub(crate) fn origin_only(url: &str) -> String {
     format!("{}://{}", scheme, authority)
 }
 
+/// Host:port (or host) for display — never a full path.
+pub fn host_port_from_url(url: &str) -> String {
+    name_from_url(url)
+}
+
+/// Human label: `Name (10.0.0.5:8096)` or just `10.0.0.5:8096` if name is empty/same.
+pub fn server_display_label(name: &str, url: &str) -> String {
+    let host_port = host_port_from_url(url);
+    let name = name.trim();
+    if name.is_empty() || name.eq_ignore_ascii_case(&host_port) {
+        if host_port.is_empty() {
+            "server".to_string()
+        } else {
+            host_port
+        }
+    } else if host_port.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name} ({host_port})")
+    }
+}
+
 /// Derive a display name from a server URL.
 ///
 /// Includes the port when present so two services on the same host

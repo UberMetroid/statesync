@@ -1,5 +1,6 @@
 use super::force_constants::{FORCE_ITEM_CAP, FORCE_PAGE_TIMEOUT};
-use super::{ForceContext, ForceSyncError, ForceSyncStatus, push_error, write_status};
+use super::helpers::record_force_error;
+use super::{ForceContext, ForceSyncError, ForceSyncStatus, write_status};
 use crate::client::PlayedItem;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -55,34 +56,41 @@ pub async fn force_sync_pair(
         let items: Vec<PlayedItem> = match items_res {
             Ok(Ok(items)) => items,
             Ok(Err(e)) => {
-                push_error(
+                record_force_error(
+                    ctx,
                     errors,
                     status,
                     ForceSyncError {
-                        user: src_user_id.to_string(),
+                        user: src_username.to_string(),
                         server: ctx.config.servers[src_idx].name.clone(),
                         item_id: None,
                         provider: None,
-                        message: format!("list failed: {}", e),
+                        message: format!("could not list watched titles: {}", e),
                     },
-                );
+                )
+                .await;
                 *failed_total += 1;
                 status.by_field.played.fail += 1;
                 write_status(&ctx.tracker, status);
                 break;
             }
             Err(_) => {
-                push_error(
+                record_force_error(
+                    ctx,
                     errors,
                     status,
                     ForceSyncError {
-                        user: src_user_id.to_string(),
+                        user: src_username.to_string(),
                         server: ctx.config.servers[src_idx].name.clone(),
                         item_id: None,
                         provider: None,
-                        message: format!("list timeout after {:?}", FORCE_PAGE_TIMEOUT),
+                        message: format!(
+                            "timed out listing watched titles after {:?}",
+                            FORCE_PAGE_TIMEOUT
+                        ),
                     },
-                );
+                )
+                .await;
                 *failed_total += 1;
                 status.by_field.played.fail += 1;
                 write_status(&ctx.tracker, status);

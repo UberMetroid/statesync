@@ -1,4 +1,4 @@
-use super::{Direction, ForceSyncError, ForceSyncStatus, SyncForceTracker};
+use super::{Direction, ForceContext, ForceSyncError, ForceSyncStatus, SyncForceTracker};
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
@@ -56,6 +56,46 @@ pub fn push_error(
     status.errors = errors.clone();
 }
 
+/// Record a force failure on status **and** the activity log (plain language).
+pub async fn record_force_error(
+    ctx: &ForceContext,
+    errors: &mut Vec<ForceSyncError>,
+    status: &mut ForceSyncStatus,
+    mut err: ForceSyncError,
+) {
+    // Prefer "Name (host:port)" when we can resolve the config entry.
+    if let Some(s) = ctx
+        .config
+        .servers
+        .iter()
+        .find(|s| s.name == err.server || crate::config::server_display_label(&s.name, &s.url) == err.server)
+    {
+        err.server = crate::config::server_display_label(&s.name, &s.url);
+    }
+    let who = if err.user.trim().is_empty() {
+        "—".to_string()
+    } else {
+        err.user.clone()
+    };
+    let mut detail = format!("Who: {} · Where: {} · Why: {}", who, err.server, err.message);
+    if let Some(ref id) = err.item_id {
+        detail.push_str(&format!(" · library item id: {id}"));
+    }
+    if let Some(ref p) = err.provider {
+        detail.push_str(&format!(" · catalog id: {p}"));
+    }
+    push_error(errors, status, err);
+    write_status(&ctx.tracker, status);
+    {
+        let mut st = ctx.state.lock().await;
+        st.log_event_detail(
+            "error",
+            "Force: could not update a library title",
+            Some(detail),
+        );
+    }
+}
+
 pub fn write_status(tracker: &SyncForceTracker, status: &ForceSyncStatus) {
     match tracker.status.lock() {
         Ok(mut lock) => *lock = status.clone(),
@@ -73,5 +113,44 @@ impl SyncForceTracker {
 
     pub fn cancel_backfill(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+    use crate::config::server_display_label;
+
+    #[test]
+    fn server_display_combines_name_and_host_port() {
+        assert_eq!(
+            server_display_label("Home Emby", "http://10.0.0.5:8096/"),
+            "Home Emby (10.0.0.5:8096)"
+        );
+        assert_eq!(
+            server_display_label("10.0.0.5:8096", "http://10.0.0.5:8096"),
+            "10.0.0.5:8096"
+        );
+    }
+
+    #[test]
+    fn push_error_keeps_cap() {
+        let mut status = ForceSyncStatus::idle();
+        let mut errors = Vec::new();
+        for i in 0..105 {
+            push_error(
+                &mut errors,
+                &mut status,
+                ForceSyncError {
+                    user: "u".into(),
+                    server: "s".into(),
+                    item_id: None,
+                    provider: None,
+                    message: format!("e{i}"),
+                },
+            );
+        }
+        assert_eq!(errors.len(), 100);
+        assert!(status.last_error.as_deref().unwrap().contains("e104"));
     }
 }

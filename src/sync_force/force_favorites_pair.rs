@@ -1,5 +1,5 @@
-use super::helpers::publish_counts;
-use super::{ForceContext, ForceSyncError, ForceSyncStatus, push_error, write_status};
+use super::helpers::{publish_counts, record_force_error};
+use super::{ForceContext, ForceSyncError, ForceSyncStatus, write_status};
 use crate::client::PlayedItem;
 use crate::state::SyncHistoryValue;
 use std::sync::atomic::Ordering;
@@ -50,34 +50,41 @@ pub async fn force_sync_favorites_pair(
         let items: Vec<PlayedItem> = match items_res {
             Ok(Ok(items)) => items,
             Ok(Err(e)) => {
-                push_error(
+                record_force_error(
+                    ctx,
                     errors,
                     status,
                     ForceSyncError {
-                        user: src_user_id.to_string(),
+                        user: src_username.to_string(),
                         server: ctx.config.servers[src_idx].name.clone(),
                         item_id: None,
                         provider: None,
-                        message: format!("favorites list failed: {}", e),
+                        message: format!("could not list favorites: {e}"),
                     },
-                );
+                )
+                .await;
                 *failed_total += 1;
                 status.by_field.favorite.fail += 1;
                 write_status(&ctx.tracker, status);
                 break;
             }
             Err(_) => {
-                push_error(
+                record_force_error(
+                    ctx,
                     errors,
                     status,
                     ForceSyncError {
-                        user: src_user_id.to_string(),
+                        user: src_username.to_string(),
                         server: ctx.config.servers[src_idx].name.clone(),
                         item_id: None,
                         provider: None,
-                        message: format!("favorites list timeout after {:?}", FORCE_PAGE_TIMEOUT),
+                        message: format!(
+                            "timed out listing favorites after {:?}",
+                            FORCE_PAGE_TIMEOUT
+                        ),
                     },
-                );
+                )
+                .await;
                 *failed_total += 1;
                 status.by_field.favorite.fail += 1;
                 write_status(&ctx.tracker, status);
@@ -204,36 +211,40 @@ pub async fn force_sync_favorites_pair(
                     status.by_field.favorite.ok += 1;
                 }
                 Ok(Err(e)) => {
-                    push_error(
+                    record_force_error(
+                        ctx,
                         errors,
                         status,
                         ForceSyncError {
-                            user: src_user_id.to_string(),
+                            user: src_username.to_string(),
                             server: ctx.config.servers[tgt_idx].name.clone(),
                             item_id: Some(target_item_id),
                             provider: providers.history_key(),
-                            message: e.to_string(),
+                            message: format!("could not write favorite: {e}"),
                         },
-                    );
+                    )
+                    .await;
                     *failed_total += 1;
                     *processed_total += 1;
                     status.by_field.favorite.fail += 1;
                 }
                 Err(_) => {
-                    push_error(
+                    record_force_error(
+                        ctx,
                         errors,
                         status,
                         ForceSyncError {
-                            user: src_user_id.to_string(),
+                            user: src_username.to_string(),
                             server: ctx.config.servers[tgt_idx].name.clone(),
                             item_id: Some(target_item_id),
                             provider: providers.history_key(),
                             message: format!(
-                                "favorite update timeout after {:?}",
+                                "timed out writing favorite after {:?}",
                                 FORCE_UPDATE_TIMEOUT
                             ),
                         },
-                    );
+                    )
+                    .await;
                     *failed_total += 1;
                     *processed_total += 1;
                     status.by_field.favorite.fail += 1;

@@ -184,6 +184,12 @@ select {
   margin-top: 8px;
   padding-top: 4px;
 }
+.fs-failure-list {
+  color: var(--red); line-height: 1.45;
+}
+.fs-failure-list .fs-fail-line {
+  margin: 4px 0; padding-left: 0;
+}
 @media (max-width: 560px) {
   .fs-live-actions { flex-direction: row; width: 100%; justify-content: flex-end; }
 }

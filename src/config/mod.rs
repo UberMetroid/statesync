@@ -9,7 +9,9 @@ pub mod tests;
 pub mod url_safety;
 pub mod validation;
 
-pub use helpers::{name_from_url, normalize_server_url, redacted_url};
+pub use helpers::{
+    host_port_from_url, name_from_url, normalize_server_url, redacted_url, server_display_label,
+};
 pub use loader::{
     default_config, get_config_path, load_or_create_default, write_default_config_to_disk,
 };

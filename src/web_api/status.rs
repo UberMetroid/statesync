@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::config::{Config, redacted_url};
+use crate::config::{Config, host_port_from_url, redacted_url, server_display_label};
 use crate::state::AppState;
 use crate::web::WebServerState;
 
@@ -78,9 +78,18 @@ pub async fn get_status(
             .get(i)
             .cloned()
             .unwrap_or_else(|| "Offline".to_string());
+        let cfg_url = config
+            .servers
+            .iter()
+            .find(|s| s.name == *name)
+            .map(|s| s.url.as_str())
+            .unwrap_or("");
+        let host_port = host_port_from_url(cfg_url);
         servers_status.push(json!({
             "name": name,
             "url": redacted_url_for(name),
+            "host_port": host_port,
+            "display_label": server_display_label(name, cfg_url),
             "users_count": users.len(),
             "media_count": media_len,
             "websocket_status": ws_status
@@ -172,6 +181,8 @@ pub async fn get_status(
         "pair_total": tracker_status.pair_total,
         "story_headline": tracker_status.story_headline,
         "story_detail": tracker_status.story_detail,
+        // Last failures with plain-language messages (capped server-side).
+        "errors": tracker_status.errors,
     });
 
     Json(json!({

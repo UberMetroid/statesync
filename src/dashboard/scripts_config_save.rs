@@ -251,8 +251,34 @@ function applyForceSyncLiveUi(fs) {
         ? 'This is a preview: counts only.'
         : 'Live play sync stays paused until this run ends.');
     }
-    if (fs.last_error) parts.push('Last error: ' + fs.last_error);
+    if (fs.last_error) parts.push('Last failure: ' + fs.last_error);
     detail.textContent = parts.join(' ');
+  }
+  // Structured failure list (Details only) — same facts as activity log lines.
+  const failBox = $('fsFailureList');
+  if (failBox) {
+    failBox.textContent = '';
+    if (fs.errors && fs.errors.length) {
+      failBox.style.display = 'block';
+      const head = document.createElement('div');
+      head.style.fontWeight = '600';
+      head.style.color = 'var(--bright)';
+      head.style.marginBottom = '4px';
+      head.textContent = 'Failures (' + fs.errors.length + ', newest last) — also in Activity log:';
+      failBox.appendChild(head);
+      const recent = fs.errors.slice(-12);
+      recent.forEach(function (e) {
+        const line = document.createElement('div');
+        line.className = 'fs-fail-line';
+        const who = e.user ? e.user : '—';
+        const where = e.server ? e.server : '—';
+        const why = e.message ? e.message : 'unknown error';
+        line.textContent = 'Who: ' + who + ' · Where: ' + where + ' · Why: ' + why;
+        failBox.appendChild(line);
+      });
+    } else {
+      failBox.style.display = 'none';
+    }
   }
 }
 "#;

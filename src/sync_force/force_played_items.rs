@@ -1,6 +1,6 @@
 use super::force_constants::FORCE_UPDATE_TIMEOUT;
-use super::helpers::publish_counts;
-use super::{ForceContext, ForceSyncError, ForceSyncStatus, push_error};
+use super::helpers::{publish_counts, record_force_error};
+use super::{ForceContext, ForceSyncError, ForceSyncStatus};
 use crate::client::PlayedItem;
 use crate::state::SyncHistoryValue;
 use std::sync::atomic::Ordering;
@@ -183,33 +183,40 @@ pub async fn process_played_items_batch(
                 }
             }
             Ok(Err(e)) => {
-                push_error(
+                record_force_error(
+                    ctx,
                     errors,
                     status,
                     ForceSyncError {
-                        user: src_user_id.to_string(),
+                        user: src_username.to_string(),
                         server: ctx.config.servers[tgt_idx].name.clone(),
                         item_id: Some(target_item_id),
                         provider: providers.history_key(),
-                        message: e.to_string(),
+                        message: format!("could not write watched/resume: {e}"),
                     },
-                );
+                )
+                .await;
                 *failed_total += 1;
                 *processed_total += 1;
                 status.by_field.played.fail += 1;
             }
             Err(_) => {
-                push_error(
+                record_force_error(
+                    ctx,
                     errors,
                     status,
                     ForceSyncError {
-                        user: src_user_id.to_string(),
+                        user: src_username.to_string(),
                         server: ctx.config.servers[tgt_idx].name.clone(),
                         item_id: Some(target_item_id),
                         provider: providers.history_key(),
-                        message: format!("update timeout after {:?}", FORCE_UPDATE_TIMEOUT),
+                        message: format!(
+                            "timed out writing watched/resume after {:?}",
+                            FORCE_UPDATE_TIMEOUT
+                        ),
                     },
-                );
+                )
+                .await;
                 *failed_total += 1;
                 *processed_total += 1;
                 status.by_field.played.fail += 1;
