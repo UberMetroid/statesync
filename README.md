@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/studio2201/statesync">
-    <img src="assets/header.png" alt="StateSync banner" width="100%" height="220" style="max-height:220px;width:100%;object-fit:cover;object-position:center;">
+    <img src="assets/header.png" alt="StateSync banner" width="100%" height="110" style="max-height:110px;width:100%;object-fit:cover;object-position:center;">
   </a>
 </p>
 
