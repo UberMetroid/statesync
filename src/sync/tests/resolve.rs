@@ -169,7 +169,7 @@ async fn test_resolve_target_item_negative_cached() {
 #[tokio::test]
 async fn test_resolve_target_item_dynamic_search_success() {
     let mut server = mockito::Server::new_async().await;
-    let mock_call = server.mock("GET", "/Users/u1/Items?Recursive=true&Fields=ProviderIds&AnyProviderIdTypes=Imdb&ProviderIds=imdb123")
+    let mock_call = server.mock("GET", "/Users/u1/Items?Recursive=true&IncludeItemTypes=Movie,Episode&Fields=ProviderIds&AnyProviderIdTypes=Imdb&ProviderIds=imdb123")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"Items": [{"Id": "item_resolved", "ProviderIds": {"Imdb": "imdb123"}}]}"#)

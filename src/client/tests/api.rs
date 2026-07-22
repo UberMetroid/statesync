@@ -166,7 +166,7 @@ async fn test_find_item_by_provider() {
     use crate::client::ProviderIds;
     let _guard = TEST_LOCK.lock().unwrap();
     let mut server = mockito::Server::new_async().await;
-    let mock_imdb = server.mock("GET", "/Users/u1/Items?Recursive=true&Fields=ProviderIds&AnyProviderIdTypes=Imdb&ProviderIds=tt123")
+    let mock_imdb = server.mock("GET", "/Users/u1/Items?Recursive=true&IncludeItemTypes=Movie,Episode&Fields=ProviderIds&AnyProviderIdTypes=Imdb&ProviderIds=tt123")
         .with_status(200)
         .with_body(r#"{"Items": [{"Id": "item_123", "ProviderIds": {"Imdb": "tt123"}}]}"#)
         .create_async().await;
@@ -180,7 +180,7 @@ async fn test_find_item_by_provider() {
     assert_eq!(res.1.imdb, "tt123");
     mock_imdb.assert_async().await;
     // TMDb lookup
-    let mock_tmdb = server.mock("GET", "/Users/u1/Items?Recursive=true&Fields=ProviderIds&AnyProviderIdTypes=Tmdb&ProviderIds=tm456")
+    let mock_tmdb = server.mock("GET", "/Users/u1/Items?Recursive=true&IncludeItemTypes=Movie,Episode&Fields=ProviderIds&AnyProviderIdTypes=Tmdb&ProviderIds=tm456")
         .with_status(200)
         .with_body(r#"{"Items": [{"Id": "item_456", "ProviderIds": {"Tmdb": "tm456"}}]}"#)
         .create_async().await;
@@ -193,7 +193,7 @@ async fn test_find_item_by_provider() {
     assert_eq!(res_tmdb.1.tmdb, "tm456");
     mock_tmdb.assert_async().await;
     // TVDB lookup
-    let mock_tvdb = server.mock("GET", "/Users/u1/Items?Recursive=true&Fields=ProviderIds&AnyProviderIdTypes=Tvdb&ProviderIds=73244")
+    let mock_tvdb = server.mock("GET", "/Users/u1/Items?Recursive=true&IncludeItemTypes=Movie,Episode&Fields=ProviderIds&AnyProviderIdTypes=Tvdb&ProviderIds=73244")
         .with_status(200)
         .with_body(r#"{"Items": [{"Id": "item_tv", "ProviderIds": {"Tvdb": "73244"}}]}"#)
         .create_async().await;

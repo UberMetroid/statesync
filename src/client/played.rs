@@ -23,6 +23,7 @@ const PATH_SEGMENT: &AsciiSet = &CONTROLS
 
 impl MediaClient {
     /// Search library by Imdb, then Tmdb, then Tvdb (first hit wins).
+    /// Prefer [`find_item_one_provider`] + cache when doing force at scale.
     pub async fn find_item_by_provider(
         &self,
         user_id: &str,
@@ -44,7 +45,8 @@ impl MediaClient {
         Ok(None)
     }
 
-    async fn find_item_one_provider(
+    /// Single provider search (one HTTP round-trip). Restricted to Movie/Episode.
+    pub async fn find_item_one_provider(
         &self,
         user_id: &str,
         provider_type: &str,
@@ -52,7 +54,7 @@ impl MediaClient {
     ) -> Result<Option<(String, ProviderIds)>> {
         let uid = utf8_percent_encode(user_id, PATH_SEGMENT);
         let path = format!(
-            "/Users/{}/Items?Recursive=true&Fields=ProviderIds&AnyProviderIdTypes={}&ProviderIds={}",
+            "/Users/{}/Items?Recursive=true&IncludeItemTypes=Movie,Episode&Fields=ProviderIds&AnyProviderIdTypes={}&ProviderIds={}",
             uid,
             provider_type,
             utf8_percent_encode(provider_id, PATH_SEGMENT)

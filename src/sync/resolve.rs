@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::state::AppState;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::debug;
 
 pub async fn resolve_item_providers(
     source_index: usize,
@@ -34,13 +34,14 @@ pub async fn resolve_item_providers(
         };
 
         if let Some(uid) = src_user_id {
-            info!(
+            debug!(
                 "Cache miss on '{}' for item {}. Resolving details dynamically...",
                 source_name, source_item_id
             );
             if let Ok(provs) = source_client.get_item_providers(&uid, source_item_id).await {
                 let mut state_write = state_lock.lock().await;
-                state_write.caches[source_index].index_item(source_item_id.to_string(), provs.clone());
+                state_write.caches[source_index]
+                    .index_item(source_item_id.to_string(), provs.clone());
                 Some(provs)
             } else {
                 None
@@ -69,7 +70,6 @@ pub async fn resolve_target_user(
         if let Ok(new_users) = client_target.get_users().await {
             let mut state_write = state_lock.lock().await;
             if target_index < state_write.caches.len() {
-                // Merge so a partial /Users response cannot drop known users.
                 state_write.caches[target_index].merge_users(new_users);
             }
         }
@@ -83,7 +83,8 @@ pub async fn resolve_target_user(
     target_user_id
 }
 
-/// Resolve target library item: in-memory ServerCache first, then HTTP search.
+/// Resolve target library item: RAM cache first, then at most one HTTP search per
+/// provider id (Imdb → Tmdb → Tvdb), marking misses so we never re-query the same id.
 pub async fn resolve_target_item(
     target_index: usize,
     providers: &ProviderIds,
@@ -95,54 +96,74 @@ pub async fn resolve_target_item(
     if providers.is_empty() {
         return None;
     }
-    let mut state = state_lock.lock().await;
-    if let Some(id) = state.caches[target_index].lookup_item_id(providers) {
-        return Some(id);
-    }
-    if state.caches[target_index].is_negative_cached(providers) {
-        return None;
-    }
-    drop(state);
+    let t_uid = target_user_id?;
 
-    let mut resolved: Option<(String, ProviderIds)> = None;
-    let mut resolved_err: Option<String> = None;
-    if let Some(t_uid) = target_user_id {
-        info!(
-            "Cache miss on target '{}' for ({}). Searching target library...",
-            target_name,
-            providers.display_short()
+    // Up to 3 provider ids, one HTTP each, stop on first hit.
+    for _ in 0..3 {
+        let next = {
+            let state = state_lock.lock().await;
+            if target_index >= state.caches.len() {
+                return None;
+            }
+            let cache = &state.caches[target_index];
+            if let Some(id) = cache.lookup_item_id(providers) {
+                return Some(id);
+            }
+            if cache.is_negative_cached(providers) {
+                return None;
+            }
+            cache
+                .next_http_search(providers)
+                .map(|(t, id)| (t, id.to_string()))
+        };
+
+        let Some((ptype, pid)) = next else {
+            return None;
+        };
+
+        debug!(
+            "HTTP search on '{}' for {}={}",
+            target_name, ptype, pid
         );
-        match client_target.find_item_by_provider(t_uid, providers).await {
-            Ok(res) => resolved = res,
-            Err(e) => resolved_err = Some(e.to_string()),
+
+        match client_target
+            .find_item_one_provider(t_uid, ptype, &pid)
+            .await
+        {
+            Ok(Some((id, found))) => {
+                let mut state = state_lock.lock().await;
+                let mut merged = providers.clone();
+                if merged.imdb.is_empty() {
+                    merged.imdb = found.imdb;
+                }
+                if merged.tmdb.is_empty() {
+                    merged.tmdb = found.tmdb;
+                }
+                if merged.tvdb.is_empty() {
+                    merged.tvdb = found.tvdb;
+                }
+                state.caches[target_index].index_item(id.clone(), merged);
+                return Some(id);
+            }
+            Ok(None) => {
+                let mut state = state_lock.lock().await;
+                state.caches[target_index].index_one_not_found(ptype, &pid);
+                // Loop: try next provider id if any.
+            }
+            Err(e) => {
+                // Network error — do not poison cache; bail this item.
+                tracing::warn!(
+                    "Target '{}' lookup error for {}={} (will not poison cache): {}",
+                    target_name,
+                    ptype,
+                    pid,
+                    e
+                );
+                return None;
+            }
         }
     }
-    let mut state = state_lock.lock().await;
-    if let Some((id, found)) = resolved {
-        // Prefer known source ids; fill gaps from search result.
-        let mut merged = providers.clone();
-        if merged.imdb.is_empty() {
-            merged.imdb = found.imdb;
-        }
-        if merged.tmdb.is_empty() {
-            merged.tmdb = found.tmdb;
-        }
-        if merged.tvdb.is_empty() {
-            merged.tvdb = found.tvdb;
-        }
-        state.caches[target_index].index_item(id.clone(), merged);
-        Some(id)
-    } else if resolved_err.is_none() {
-        state.caches[target_index].index_not_found(providers);
-        None
-    } else {
-        if let Some(err) = resolved_err {
-            tracing::warn!(
-                "Target '{}' lookup error (will not poison cache): {}",
-                target_name,
-                err
-            );
-        }
-        None
-    }
+    None
 }
+
+
