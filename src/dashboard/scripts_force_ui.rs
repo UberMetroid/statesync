@@ -154,25 +154,25 @@ function renderForceSync(s) {
   div.textContent = verb + ': looked at ' + s.processed + ' · pushed ' + s.succeeded + ' · skipped ' + s.skipped + ' · failed ' + s.failed + ' (' + elapsed + 's)'
     + (s.last_error ? ' · ' + s.last_error : '');
 }
+function setHowSyncExpanded(show) {
+  const body = $('howSyncBody');
+  const btn = $('toggleHowSyncBtn');
+  const hint = $('howSyncCollapsedHint');
+  if (!body || !btn) return;
+  body.style.display = show ? 'block' : 'none';
+  btn.textContent = show ? 'Collapse' : 'Expand';
+  if (hint) hint.style.display = show ? 'none' : 'block';
+  localStorage.setItem('how-sync-expanded', show ? 'true' : 'false');
+}
 function toggleHowSync() {
   const body = $('howSyncBody');
-  const btn = $('toggleHowSyncBtn');
-  if (!body || !btn) return;
-  const hidden = body.style.display === 'none';
-  body.style.display = hidden ? 'block' : 'none';
-  btn.textContent = hidden ? 'Collapse' : 'Expand';
-  localStorage.setItem('how-sync-expanded', hidden ? 'true' : 'false');
+  if (!body) return;
+  setHowSyncExpanded(body.style.display === 'none');
 }
 function initHowSyncToggle() {
-  const expanded = localStorage.getItem('how-sync-expanded');
   // Default expanded so the overview is visible on first visit
-  const show = expanded !== 'false';
-  const body = $('howSyncBody');
-  const btn = $('toggleHowSyncBtn');
-  if (body && btn) {
-    body.style.display = show ? 'block' : 'none';
-    btn.textContent = show ? 'Collapse' : 'Expand';
-  }
+  const show = localStorage.getItem('how-sync-expanded') !== 'false';
+  setHowSyncExpanded(show);
 }
 function toggleLogs() {
   const logsDiv = $('syncLogs');

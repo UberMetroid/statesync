@@ -50,6 +50,12 @@ mod tests {
         assert!(html_str.contains("Media servers"));
         assert!(html_str.contains("Activity log"));
         assert!(html_str.contains("How sync works"));
+        assert!(html_str.contains("howSyncCollapsedHint"));
+        assert!(html_str.contains("how-pills"));
+        assert!(html_str.contains("Live play sync"));
+        assert!(html_str.contains("Actions"));
+        assert!(html_str.contains("Not synced:"));
+        assert!(html_str.contains("how-dot-live"));
         assert!(html_str.contains("/favicon.jpg"));
         assert!(html_str.contains("userActionsModal"));
         assert!(html_str.contains("openUserActionsModal"));

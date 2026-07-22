@@ -1,8 +1,22 @@
 //! Dashboard panel and form CSS.
 pub const CSS_PANELS: &str = r#".how-sync-card .how-lead {
-  font-size: 13px; color: var(--text); margin-bottom: 14px; line-height: 1.5;
+  font-size: 13px; color: var(--text); margin-bottom: 10px; line-height: 1.5;
 }
 .how-sync-card .how-lead strong { color: var(--bright); font-weight: 600; }
+.how-collapsed-hint {
+  margin: 4px 0 0; font-size: 11px; color: var(--muted); line-height: 1.35;
+}
+.how-pills {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;
+}
+.how-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 10px; border-radius: 999px;
+  background: rgba(59, 158, 255, 0.08);
+  border: 1px solid rgba(59, 158, 255, 0.22);
+  font-size: 11px; color: var(--muted); line-height: 1.3;
+}
+.how-pill strong { color: var(--accent); font-weight: 600; }
 .how-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -22,12 +36,28 @@ pub const CSS_PANELS: &str = r#".how-sync-card .how-lead {
 }
 .how-title { color: var(--bright); font-weight: 600; font-size: 13px; margin-bottom: 4px; }
 .how-step p { font-size: 12px; color: var(--muted); line-height: 1.45; margin: 0; }
+.how-step p strong { color: var(--bright); font-weight: 600; }
 .how-legend {
   display: flex; flex-wrap: wrap; gap: 8px 14px;
   margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
   font-size: 11px; color: var(--muted);
 }
 .how-legend strong { color: var(--bright); font-weight: 600; }
+.how-legend-item {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.how-dot {
+  width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0;
+  background: var(--muted);
+}
+.how-dot-live { background: var(--green); box-shadow: 0 0 0 2px rgba(61, 214, 140, 0.18); }
+.how-dot-pending { background: var(--accent); opacity: 0.85; }
+.how-dot-muted { background: var(--muted); }
+.how-dot-failed { background: var(--red); }
+.how-not-synced {
+  margin: 12px 0 0; font-size: 11px; color: var(--muted); line-height: 1.4;
+}
+.how-not-synced strong { color: var(--bright); font-weight: 600; }
 @media (max-width: 900px) {
   .how-grid { grid-template-columns: repeat(2, 1fr); }
 }
