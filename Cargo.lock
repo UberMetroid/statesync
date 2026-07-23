@@ -1386,8 +1386,8 @@ dependencies = [
 
 [[package]]
 name = "shared-core"
-version = "3.0.33"
-source = "git+https://github.com/studio2201/shared-assets.git?tag=v3.0.33#5c1f076b40ab66804648a645cc37978056d104f5"
+version = "3.0.35"
+source = "git+https://github.com/studio2201/shared-assets.git?tag=v3.0.35#24d4c8dcf8840274bdb3a163cc27f74a5f94d54a"
 dependencies = [
  "constant_time_eq",
  "serde",
