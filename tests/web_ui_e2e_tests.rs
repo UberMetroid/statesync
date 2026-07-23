@@ -123,7 +123,7 @@ async fn test_e2e_api_test_connection_emby_and_jellyfin() {
     assert_eq!(json_res["status"], "ok");
     let msg = json_res["message"].as_str().unwrap();
     assert!(
-        msg.contains("Connected") && msg.contains("1 users"),
+        (msg.contains("Connected") || msg.contains("OK")) && msg.contains("1 users"),
         "unexpected message: {}",
         msg
     );

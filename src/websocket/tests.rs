@@ -86,7 +86,9 @@ async fn test_init_cache_in_background() {
             .create_async().await;
 
     let client = Arc::new(MediaClient::new(server.url(), "key".to_string(), false));
-    let state = Arc::new(Mutex::new(AppState::new(vec![crate::state::ServerCache::empty("test".to_string())])));
+    let state = Arc::new(Mutex::new(AppState::new(vec![
+        crate::state::ServerCache::empty("test".to_string()),
+    ])));
 
     let res = init_cache_in_background(0, "test", &client, &state).await;
     assert!(res.is_ok());
@@ -101,9 +103,7 @@ async fn test_init_cache_in_background() {
 #[tokio::test]
 async fn test_handle_sessions_event() {
     let mut cache = crate::state::ServerCache::empty("test_server");
-    cache
-        .users
-        .insert("alice".to_string(), "u1".to_string());
+    cache.users.insert("alice".to_string(), "u1".to_string());
     let caches = vec![cache];
     let state = Arc::new(Mutex::new(AppState::new(caches)));
 
@@ -152,9 +152,7 @@ async fn test_handle_sessions_event() {
 #[tokio::test]
 async fn test_handle_userdata_changed_event() {
     let mut cache = crate::state::ServerCache::empty("test_server");
-    cache
-        .users
-        .insert("alice".to_string(), "u1".to_string());
+    cache.users.insert("alice".to_string(), "u1".to_string());
     let caches = vec![cache];
     let state = Arc::new(Mutex::new(AppState::new(caches)));
 

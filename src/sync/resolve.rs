@@ -117,14 +117,9 @@ pub async fn resolve_target_item(
                 .map(|(t, id)| (t, id.to_string()))
         };
 
-        let Some((ptype, pid)) = next else {
-            return None;
-        };
+        let (ptype, pid) = next?;
 
-        debug!(
-            "HTTP search on '{}' for {}={}",
-            target_name, ptype, pid
-        );
+        debug!("HTTP search on '{}' for {}={}", target_name, ptype, pid);
 
         match client_target
             .find_item_one_provider(t_uid, ptype, &pid)
@@ -165,5 +160,3 @@ pub async fn resolve_target_item(
     }
     None
 }
-
-

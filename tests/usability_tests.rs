@@ -86,7 +86,7 @@ fn test_dashboard_usability_toast_feedback() {
 
     // Assert human-readable status toasts for user actions
     assert!(
-        js_code.contains("Enter a server address and API key first"),
+        js_code.contains("Enter a server address first"),
         "Missing missing-data toast"
     );
     assert!(

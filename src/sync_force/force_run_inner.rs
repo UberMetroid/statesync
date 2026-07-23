@@ -1,13 +1,9 @@
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::info;
 
-use super::force_story::{
-    apply_story, story_counting, story_favorites, story_finished, story_played,
-};
+use super::force_story::{apply_story, story_counting, story_finished};
 use super::runner::rate_from_env;
-use super::sync_loop::{force_sync_favorites_pair, force_sync_pair};
 use super::{ForceContext, ForceSyncError, ForceSyncState, ForceSyncStatus, write_status};
 
 pub(super) async fn run_force_sync_inner(
@@ -26,11 +22,7 @@ pub(super) async fn run_force_sync_inner(
         let src_name = config.servers[*src_idx].name.as_str();
         let (h, d) = story_counting(src_username, src_name, (i as u64) + 1, pair_n.max(1));
         {
-            let mut st = ctx
-                .tracker
-                .status
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut st = ctx.tracker.status.lock().unwrap_or_else(|e| e.into_inner());
             apply_story(
                 &mut st,
                 "preparing",
@@ -61,16 +53,8 @@ pub(super) async fn run_force_sync_inner(
     }
 
     {
-        let mut status = ctx
-            .tracker
-            .status
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        status.total_pairs = if total_items > 0 {
-            total_items
-        } else {
-            pair_n
-        };
+        let mut status = ctx.tracker.status.lock().unwrap_or_else(|e| e.into_inner());
+        status.total_pairs = if total_items > 0 { total_items } else { pair_n };
         status.phase = Some("preparing".to_string());
         if pairs.is_empty() {
             apply_story(
@@ -112,137 +96,37 @@ pub(super) async fn run_force_sync_inner(
     let mut cancelled = false;
 
     if config.sync.force_played || config.sync.force_position {
-        {
-            let mut st = ctx.state.lock().await;
-            st.log_event(
-                "info",
-                "Force sync: starting watched-history pass (all linked routes)",
-            );
-        }
-        for (i, (src_idx, tgt_idx, src_username, src_user_id, tgt_user_id)) in
-            pairs.iter().enumerate()
-        {
-            if ctx.tracker.cancel.load(Ordering::SeqCst) {
-                cancelled = true;
-                break;
-            }
-            let src_name = config.servers[*src_idx].name.as_str();
-            let tgt_name = config.servers[*tgt_idx].name.as_str();
-            let pair_i = (i as u64) + 1;
-            let (h, d) = story_played(
-                src_username,
-                src_name,
-                tgt_name,
-                pair_i,
-                pair_n.max(1),
-                ctx.dry_run,
-            );
-            apply_story(
-                &mut status,
-                "played",
-                h.clone(),
-                d.clone(),
-                Some(src_username),
-                Some(src_name),
-                Some(tgt_name),
-                pair_i,
-                pair_n,
-            );
-            write_status(&ctx.tracker, &status);
-            {
-                let mut st = ctx.state.lock().await;
-                st.log_event_detail("info", &h, Some(d));
-            }
-
-            cancelled = force_sync_pair(
-                *src_idx,
-                *tgt_idx,
-                src_username,
-                src_user_id,
-                tgt_user_id,
-                ctx,
-                &mut status,
-                &mut processed_total,
-                &mut succeeded_total,
-                &mut skipped_total,
-                &mut failed_total,
-                &mut errors,
-                &semaphore,
-                min_interval,
-            )
-            .await;
-
-            if cancelled {
-                break;
-            }
-        }
+        cancelled = super::force_run_passes::run_played_pass(
+            ctx,
+            &pairs,
+            pair_n,
+            &mut status,
+            &mut processed_total,
+            &mut succeeded_total,
+            &mut skipped_total,
+            &mut failed_total,
+            &mut errors,
+            &semaphore,
+            min_interval,
+        )
+        .await;
     }
 
     if !cancelled && config.sync.force_favorites {
-        {
-            let mut st = ctx.state.lock().await;
-            st.log_event(
-                "info",
-                "Force sync: starting favorites pass (all linked routes)",
-            );
-        }
-        for (i, (src_idx, tgt_idx, src_username, src_user_id, tgt_user_id)) in
-            pairs.iter().enumerate()
-        {
-            if ctx.tracker.cancel.load(Ordering::SeqCst) {
-                cancelled = true;
-                break;
-            }
-            let src_name = config.servers[*src_idx].name.as_str();
-            let tgt_name = config.servers[*tgt_idx].name.as_str();
-            let pair_i = (i as u64) + 1;
-            let (h, d) = story_favorites(
-                src_username,
-                src_name,
-                tgt_name,
-                pair_i,
-                pair_n.max(1),
-                ctx.dry_run,
-            );
-            apply_story(
-                &mut status,
-                "favorites",
-                h.clone(),
-                d.clone(),
-                Some(src_username),
-                Some(src_name),
-                Some(tgt_name),
-                pair_i,
-                pair_n,
-            );
-            write_status(&ctx.tracker, &status);
-            {
-                let mut st = ctx.state.lock().await;
-                st.log_event_detail("info", &h, Some(d));
-            }
-
-            cancelled = force_sync_favorites_pair(
-                *src_idx,
-                *tgt_idx,
-                src_username,
-                src_user_id,
-                tgt_user_id,
-                ctx,
-                &mut status,
-                &mut processed_total,
-                &mut succeeded_total,
-                &mut skipped_total,
-                &mut failed_total,
-                &mut errors,
-                &semaphore,
-                min_interval,
-            )
-            .await;
-
-            if cancelled {
-                break;
-            }
-        }
+        cancelled = super::force_run_passes::run_favorites_pass(
+            ctx,
+            &pairs,
+            pair_n,
+            &mut status,
+            &mut processed_total,
+            &mut succeeded_total,
+            &mut skipped_total,
+            &mut failed_total,
+            &mut errors,
+            &semaphore,
+            min_interval,
+        )
+        .await;
     }
 
     let now = chrono::Utc::now();

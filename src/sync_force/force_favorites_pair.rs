@@ -1,11 +1,10 @@
-use super::helpers::{publish_counts, record_force_error};
+use super::helpers::record_force_error;
 use super::{ForceContext, ForceSyncError, ForceSyncStatus, write_status};
 use crate::client::PlayedItem;
-use crate::state::SyncHistoryValue;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use super::force_constants::{FORCE_ITEM_CAP, FORCE_PAGE_TIMEOUT, FORCE_UPDATE_TIMEOUT};
+use super::force_constants::{FORCE_ITEM_CAP, FORCE_PAGE_TIMEOUT};
 
 pub async fn force_sync_favorites_pair(
     src_idx: usize,
@@ -27,9 +26,7 @@ pub async fn force_sync_favorites_pair(
         return false;
     }
     let source_client = ctx.clients[src_idx].clone();
-    let target_client = ctx.clients[tgt_idx].clone();
     let page_size: usize = 500;
-    let dry_run = ctx.dry_run;
     let mut last_status_write = Instant::now() - Duration::from_secs(1);
 
     let mut page: usize = 0;
@@ -99,172 +96,27 @@ pub async fn force_sync_favorites_pair(
                 cancelled = true;
                 break;
             }
-            let started_item = Instant::now();
-            let providers = item.provider_ids();
-            if providers.is_empty() {
-                *skipped_total += 1;
-                *processed_total += 1;
-                status.by_field.favorite.skip += 1;
-                status.skip_reasons.no_provider += 1;
-                publish_counts(
-                    &ctx.tracker,
-                    status,
-                    *processed_total,
-                    *succeeded_total,
-                    *skipped_total,
-                    *failed_total,
-                    &mut last_status_write,
-                    false,
-                );
-                continue;
-            }
             let permit = semaphore.acquire().await;
-            let target_name = ctx.config.servers[tgt_idx].name.clone();
-            let target_item_id = crate::sync::resolve::resolve_target_item(
-                tgt_idx,
-                &providers,
-                &target_name,
-                Some(tgt_user_id),
-                &target_client,
-                &ctx.state,
-            )
-            .await;
-            let target_item_id = match target_item_id {
-                Some(id) => id,
-                None => {
-                    drop(permit);
-                    *skipped_total += 1;
-                    *processed_total += 1;
-                    status.by_field.favorite.skip += 1;
-                    status.skip_reasons.no_match += 1;
-                    publish_counts(
-                        &ctx.tracker,
-                        status,
-                        *processed_total,
-                        *succeeded_total,
-                        *skipped_total,
-                        *failed_total,
-                        &mut last_status_write,
-                        false,
-                    );
-                    continue;
-                }
-            };
-            // Already favorited on target → skip write.
-            if let Ok(tgt_ud) = target_client
-                .get_item_user_data(tgt_user_id, &target_item_id)
-                .await
-            {
-                if tgt_ud.is_favorite == Some(true) {
-                    drop(permit);
-                    // No write → skip min_interval pacing (equal libraries must not stall).
-                    *skipped_total += 1;
-                    *processed_total += 1;
-                    status.by_field.favorite.skip += 1;
-                    status.skip_reasons.already_equal += 1;
-                    publish_counts(
-                        &ctx.tracker,
-                        status,
-                        *processed_total,
-                        *succeeded_total,
-                        *skipped_total,
-                        *failed_total,
-                        &mut last_status_write,
-                        false,
-                    );
-                    continue;
-                }
-            }
-            let update_res = if dry_run {
-                Ok(Ok(()))
-            } else {
-                tokio::time::timeout(
-                    FORCE_UPDATE_TIMEOUT,
-                    target_client.update_favorite(tgt_user_id, &target_item_id, true),
+            if let Ok(permit) = permit {
+                super::force_favorites_item::process_favorite_item(
+                    item,
+                    src_idx,
+                    tgt_idx,
+                    src_username,
+                    tgt_user_id,
+                    ctx,
+                    status,
+                    processed_total,
+                    succeeded_total,
+                    skipped_total,
+                    failed_total,
+                    errors,
+                    permit,
+                    &mut last_status_write,
+                    min_interval,
                 )
-                .await
-            };
-            match update_res {
-                Ok(Ok(())) => {
-                    if !dry_run {
-                        if let Some(hk) = providers.history_key() {
-                            let key = (src_username.to_lowercase(), hk);
-                            let mut st = ctx.state.lock().await;
-                            let prev = st.last_syncs.get(&key).cloned();
-                            st.last_syncs.insert(
-                                key,
-                                SyncHistoryValue {
-                                    position_ticks: prev
-                                        .as_ref()
-                                        .map(|p| p.position_ticks)
-                                        .unwrap_or(0),
-                                    timestamp: Instant::now(),
-                                    played: prev.as_ref().map(|p| p.played).unwrap_or(false),
-                                    favorite: Some(true),
-                                },
-                            );
-                            drop(st);
-                        }
-                    }
-                    *succeeded_total += 1;
-                    *processed_total += 1;
-                    status.by_field.favorite.ok += 1;
-                }
-                Ok(Err(e)) => {
-                    record_force_error(
-                        ctx,
-                        errors,
-                        status,
-                        ForceSyncError {
-                            user: src_username.to_string(),
-                            server: ctx.config.servers[tgt_idx].name.clone(),
-                            item_id: Some(target_item_id),
-                            provider: providers.history_key(),
-                            message: format!("could not write favorite: {e}"),
-                        },
-                    )
-                    .await;
-                    *failed_total += 1;
-                    *processed_total += 1;
-                    status.by_field.favorite.fail += 1;
-                }
-                Err(_) => {
-                    record_force_error(
-                        ctx,
-                        errors,
-                        status,
-                        ForceSyncError {
-                            user: src_username.to_string(),
-                            server: ctx.config.servers[tgt_idx].name.clone(),
-                            item_id: Some(target_item_id),
-                            provider: providers.history_key(),
-                            message: format!(
-                                "timed out writing favorite after {:?}",
-                                FORCE_UPDATE_TIMEOUT
-                            ),
-                        },
-                    )
-                    .await;
-                    *failed_total += 1;
-                    *processed_total += 1;
-                    status.by_field.favorite.fail += 1;
-                }
+                .await;
             }
-            drop(permit);
-            let elapsed = started_item.elapsed();
-            if elapsed < min_interval {
-                tokio::time::sleep(min_interval - elapsed).await;
-            }
-            publish_counts(
-                &ctx.tracker,
-                status,
-                *processed_total,
-                *succeeded_total,
-                *skipped_total,
-                *failed_total,
-                &mut last_status_write,
-                false,
-            );
         }
         if cancelled {
             break;

@@ -192,10 +192,7 @@ pub(super) fn format_force_skip_story(status: &ForceSyncStatus) -> String {
         bits.push(format!("{} already same (good)", sr.already_equal));
     }
     if sr.no_provider > 0 {
-        bits.push(format!(
-            "{} could not pair (no catalog ID)",
-            sr.no_provider
-        ));
+        bits.push(format!("{} could not pair (no catalog ID)", sr.no_provider));
     }
     if sr.no_match > 0 {
         bits.push(format!(

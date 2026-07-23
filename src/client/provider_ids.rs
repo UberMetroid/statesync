@@ -60,7 +60,11 @@ impl ProviderIds {
         }
     }
 
-    pub fn from_parts(imdb: impl Into<String>, tmdb: impl Into<String>, tvdb: impl Into<String>) -> Self {
+    pub fn from_parts(
+        imdb: impl Into<String>,
+        tmdb: impl Into<String>,
+        tvdb: impl Into<String>,
+    ) -> Self {
         Self {
             imdb: imdb.into(),
             tmdb: tmdb.into(),

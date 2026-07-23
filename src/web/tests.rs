@@ -117,9 +117,7 @@ async fn test_serve_healthz_unhealthy() {
 #[tokio::test]
 async fn test_serve_healthz_healthy() {
     let mut cache = crate::state::ServerCache::empty("test");
-    cache
-        .users
-        .insert("alice".to_string(), "u1".to_string());
+    cache.users.insert("alice".to_string(), "u1".to_string());
     let app_state = Arc::new(Mutex::new(AppState::new(vec![cache])));
     // simulate connected status to trigger healthy
     {

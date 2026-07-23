@@ -3,6 +3,7 @@
 pub mod scripts;
 pub mod scripts_actions;
 pub mod scripts_config_save;
+pub mod scripts_force_live;
 pub mod scripts_force_ui;
 pub mod scripts_map_settings;
 pub mod scripts_server_form;
@@ -15,19 +16,21 @@ pub mod styles_panels;
 /// Concatenates the embedded Rust JavaScript string slices into a single string for HTML insertion.
 pub fn render_full_js() -> String {
     format!(
-        "{}{}{}{}{}{}{}{}",
+        "{}{}{}{}{}{}{}{}{}",
         scripts::JS_CORE,
         scripts_sessions_users::JS_SESSIONS_USERS,
         scripts_actions::JS_ACTIONS,
         scripts_server_form::JS_SERVER_FORM,
         scripts_map_settings::JS_MAP_SETTINGS,
         scripts_config_save::JS_CONFIG_SAVE,
+        scripts_force_live::JS_FORCE_LIVE,
         scripts_force_ui::JS_FORCE_UI,
         scripts_user_actions::JS_USER_ACTIONS
     )
 }
 
 pub mod dashboard_how;
+pub mod dashboard_modals;
 pub mod dashboard_page;
 
 pub use dashboard_page::render_dashboard;
@@ -59,8 +62,10 @@ mod tests {
         assert!(html_str.contains("fsStoryExpanded"));
         assert!(html_str.contains("fsStoryToggleBtn"));
         assert!(html_str.contains("toggleForceStory"));
-        assert!(html_str.contains("never look at folders or files")
-            || html_str.contains("never look at folders"));
+        assert!(
+            html_str.contains("never look at folders or files")
+                || html_str.contains("never look at folders")
+        );
         assert!(html_str.contains("/favicon.jpg"));
         assert!(html_str.contains("userActionsModal"));
         assert!(html_str.contains("openUserActionsModal"));

@@ -6,6 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tokio::sync::Mutex;
 
+/// (src_idx, tgt_idx, username, src_user_id, tgt_user_id)
+pub type ForcePair = (usize, usize, String, String, String);
+
 fn default_force_direction() -> Direction {
     Direction::Both
 }

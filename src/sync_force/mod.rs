@@ -2,11 +2,13 @@
 
 pub mod force_constants;
 pub mod force_equal;
+pub mod force_favorites_item;
 pub mod force_favorites_pair;
 pub mod force_pair_plan;
 pub mod force_played_items;
 pub mod force_played_pair;
 pub mod force_run_inner;
+pub mod force_run_passes;
 pub mod force_story;
 pub mod force_types;
 pub mod helpers;

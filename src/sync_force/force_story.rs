@@ -46,7 +46,9 @@ pub fn story_started(dry_run: bool, only_user: Option<&str>) -> (String, String)
 pub fn story_counting(user: &str, source: &str, pair_i: u64, pair_n: u64) -> (String, String) {
     (
         format!("Counting watched ({pair_i}/{pair_n})"),
-        format!("Step: count. Person: {user}. Server: {source}. Action: ask library how many watched (+ favorites)."),
+        format!(
+            "Step: count. Person: {user}. Server: {source}. Action: ask library how many watched (+ favorites)."
+        ),
     )
 }
 

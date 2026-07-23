@@ -12,7 +12,7 @@ pub async fn process_played_items_batch(
     _src_idx: usize,
     tgt_idx: usize,
     src_username: &str,
-    src_user_id: &str,
+    _src_user_id: &str,
     tgt_user_id: &str,
     ctx: &ForceContext,
     status: &mut ForceSyncStatus,

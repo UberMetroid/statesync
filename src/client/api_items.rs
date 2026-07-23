@@ -54,11 +54,7 @@ impl MediaClient {
         Ok(all_items)
     }
 
-    pub async fn get_item_providers(
-        &self,
-        user_id: &str,
-        item_id: &str,
-    ) -> Result<ProviderIds> {
+    pub async fn get_item_providers(&self, user_id: &str, item_id: &str) -> Result<ProviderIds> {
         let path = format!(
             "/Users/{}/Items/{}",
             utf8_percent_encode(user_id, NON_ALPHANUMERIC),

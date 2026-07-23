@@ -89,7 +89,10 @@ fn test_normalize_server_url_strips_any_pasted_web_ui() {
     // No explicit port → host only
     assert_eq!(name_from_url("http://emby.lan/web/"), "emby.lan");
     assert_eq!(name_from_url("http://[fe80::1]:8096/"), "[fe80::1]:8096");
-    assert_eq!(host_port_from_url("http://10.0.0.5:8096/web/"), "10.0.0.5:8096");
+    assert_eq!(
+        host_port_from_url("http://10.0.0.5:8096/web/"),
+        "10.0.0.5:8096"
+    );
     assert_eq!(
         server_display_label("Home Emby", "http://10.0.0.5:8096/"),
         "Home Emby (10.0.0.5:8096)"

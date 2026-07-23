@@ -53,7 +53,11 @@ impl ServerCache {
     }
 
     fn is_neg(map: &HashMap<String, String>, key: &str) -> bool {
-        !key.is_empty() && map.get(key).map(|id| id.as_str() == NOT_FOUND).unwrap_or(false)
+        !key.is_empty()
+            && map
+                .get(key)
+                .map(|id| id.as_str() == NOT_FOUND)
+                .unwrap_or(false)
     }
 
     fn is_untried(map: &HashMap<String, String>, key: &str) -> bool {
@@ -191,18 +195,9 @@ mod tests {
             tvdb_to_id: HashMap::new(),
             id_to_providers: HashMap::new(),
         };
-        c.index_item(
-            "a".into(),
-            ProviderIds::from_parts("tt1", "", ""),
-        );
-        c.index_item(
-            "b".into(),
-            ProviderIds::from_parts("", "99", ""),
-        );
-        c.index_item(
-            "c".into(),
-            ProviderIds::from_parts("", "", "73244"),
-        );
+        c.index_item("a".into(), ProviderIds::from_parts("tt1", "", ""));
+        c.index_item("b".into(), ProviderIds::from_parts("", "99", ""));
+        c.index_item("c".into(), ProviderIds::from_parts("", "", "73244"));
         assert_eq!(
             c.lookup_item_id(&ProviderIds::from_parts("tt1", "99", "73244"))
                 .as_deref(),

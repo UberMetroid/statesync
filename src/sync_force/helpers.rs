@@ -64,12 +64,9 @@ pub async fn record_force_error(
     mut err: ForceSyncError,
 ) {
     // Prefer "Name (host:port)" when we can resolve the config entry.
-    if let Some(s) = ctx
-        .config
-        .servers
-        .iter()
-        .find(|s| s.name == err.server || crate::config::server_display_label(&s.name, &s.url) == err.server)
-    {
+    if let Some(s) = ctx.config.servers.iter().find(|s| {
+        s.name == err.server || crate::config::server_display_label(&s.name, &s.url) == err.server
+    }) {
         err.server = crate::config::server_display_label(&s.name, &s.url);
     }
     let who = if err.user.trim().is_empty() {
@@ -77,7 +74,10 @@ pub async fn record_force_error(
     } else {
         err.user.clone()
     };
-    let mut detail = format!("Who: {} · Where: {} · Why: {}", who, err.server, err.message);
+    let mut detail = format!(
+        "Who: {} · Where: {} · Why: {}",
+        who, err.server, err.message
+    );
     if let Some(ref id) = err.item_id {
         detail.push_str(&format!(" · library item id: {id}"));
     }

@@ -23,7 +23,9 @@ pub(super) fn parse_sync_force_args(args: &[String]) -> (Direction, bool) {
             println!(
                 "Uses Settings scopes (force played / position / favorites) and user allowlist."
             );
-            println!("Leaves already-matching library titles unchanged. Story: phases + no-change reasons.");
+            println!(
+                "Leaves already-matching library titles unchanged. Story: phases + no-change reasons."
+            );
             println!("Rate: STATESYNC_FORCE_RATE items/sec (default 5, max 50).");
             std::process::exit(0);
         }
@@ -157,7 +159,9 @@ pub async fn run_sync_force_cli(args: &[String]) -> anyhow::Result<()> {
         {
             "Force sync cancelled"
         }
-        ForceSyncState::Failed if dry_run => "Force preview finished with some failures (no writes)",
+        ForceSyncState::Failed if dry_run => {
+            "Force preview finished with some failures (no writes)"
+        }
         ForceSyncState::Failed => "Force sync finished with some failures",
         _ => "Force sync ended",
     };
