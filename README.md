@@ -20,26 +20,6 @@ Open your browser to `http://localhost:8096` to access the real-time management 
 
 ---
 
-### One-Line Install (Native Package Manager)
-
-On Debian, Ubuntu, Fedora, or RHEL:
-
-```bash
-curl -fsSL https://studio2201.github.io/packages/install.sh | sudo bash
-```
-
----
-
-### Unraid NAS Deployment
-
-Deploy via the official Unraid Template:
-
-1. Copy [`statesync.xml`](statesync.xml) to your Unraid flash drive under `/boot/config/plugins/dockerMan/templates-user/`.
-2. Open **Docker** -> **Add Container** -> Select **statesync** from the template dropdown.
-3. Click **Apply**.
-
----
-
 ### Environment Configuration
 
 The backend service can be customized using the following environment variables:
